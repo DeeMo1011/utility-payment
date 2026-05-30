@@ -136,8 +136,8 @@
         <select id="m-room"><option value="">-- เลือกห้อง --</option></select>
       </div>
       <div><label>ประจำเดือน *</label><input id="m-month" type="month"></div>
-      <div><label>💧 มิเตอร์น้ำ (เก่า)</label><input id="m-waterOld" type="number" placeholder="ค่าครั้งก่อน"></div>
-      <div><label>💧 มิเตอร์น้ำ (ใหม่)</label><input id="m-waterNew" type="number" placeholder="ค่าปัจจุบัน"></div>
+      <div><label>💧 มิเตอร์น้ำ (เก่า)</label><input id="m-waterOld" type="number" placeholder="ค่าครั้งก่อน" min="0"></div>
+      <div><label>💧 มิเตอร์น้ำ (ใหม่) <span style="color:#F59E0B;font-size:11px">— ต้องมากกว่าเก่า อย่างน้อย 5 หน่วย</span></label><input id="m-waterNew" type="number" placeholder="ค่าปัจจุบัน" min="0"></div>
       <div><label>⚡ มิเตอร์ไฟ (เก่า)</label><input id="m-elecOld" type="number" placeholder="ค่าครั้งก่อน"></div>
       <div><label>⚡ มิเตอร์ไฟ (ใหม่)</label><input id="m-elecNew" type="number" placeholder="ค่าปัจจุบัน"></div>
     </div>
@@ -231,6 +231,14 @@ function showAlert(msg, type = 'ok') {
 }
 
 function showTab(name) {
+  // Clear meter form เมื่อออกจาก tab จดมิเตอร์
+  const currentTab = document.querySelector('.tab.active');
+  if (currentTab && currentTab.id === 'tab-meter' && name !== 'meter') {
+    ['m-waterOld','m-waterNew','m-elecOld','m-elecNew'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('previewBox').style.display = 'none';
+    document.getElementById('invoiceBtn').textContent = '📋 ออก Invoice & ส่ง Line';
+    document.getElementById('invoiceBtn').disabled = false;
+  }
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
@@ -378,13 +386,23 @@ async function createInvoice() {
     electricOld: document.getElementById('m-elecOld').value,
     electricNew: document.getElementById('m-elecNew').value,
   };
-  if (!body.roomId || !body.month || !body.waterOld || !body.waterNew || !body.electricOld || !body.electricNew)
+  if (!body.roomId || !body.month || body.waterOld === '' || !body.waterNew || body.electricOld === '' || !body.electricNew)
     { showAlert('กรุณากรอกข้อมูลให้ครบ', 'err'); btn.disabled=false; btn.textContent='📋 ออก Invoice & ส่ง Line'; return; }
+
+  // Validate min 5 หน่วยน้ำ
+  const waterUsed = Number(body.waterNew) - Number(body.waterOld);
+  if (waterUsed < 5) {
+    showAlert(`ค่ามิเตอร์น้ำต้องมากกว่าเดิมอย่างน้อย 5 หน่วย (ปัจจุบัน: ${waterUsed} หน่วย)`, 'err');
+    btn.disabled=false; btn.textContent='📋 ออก Invoice & ส่ง Line'; return;
+  }
+
   const r = await fetch('/api/invoices', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const data = await r.json();
   btn.disabled=false; btn.textContent='📋 ออก Invoice & ส่ง Line';
   if (data.error) return showAlert(data.error, 'err');
-  showAlert(`✅ ออก Invoice ${data.invoiceNo} เรียบร้อย ส่ง Line แล้ว! ลิงก์จ่ายเงิน: /pay/${data.payToken}`);
+  showAlert(`✅ ออก Invoice ${data.invoiceNo} เรียบร้อย ส่ง Line แล้ว!`);
+  // Auto redirect ไปหน้า Invoice
+  setTimeout(() => showTab('invoices'), 1200);
 }
 
 // ─── Invoices ────────────────────────────────────

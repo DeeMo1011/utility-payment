@@ -8,7 +8,8 @@ const fs     = require('fs');
 const path   = require('path');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 
 // ─── Paths ───────────────────────────────────────
 const DB_PATH      = path.join(__dirname, 'db.json');
@@ -76,10 +77,10 @@ async function sendLine(token, to, message) {
 
 // ─── Font paths (Windows system Thai fonts) ───────
 const FONT_CANDIDATES = [
+  { r: path.join(__dirname,'fonts','Sarabun-Regular.ttf'), b: path.join(__dirname,'fonts','Sarabun-Bold.ttf') },
   { r: 'C:\\Windows\\Fonts\\leelawad.ttf',            b: 'C:\\Windows\\Fonts\\leelawdb.ttf' },
   { r: 'C:\\Windows\\Fonts\\tahoma.ttf',              b: 'C:\\Windows\\Fonts\\tahomabd.ttf' },
-  { r: 'C:\\Windows\\Fonts\\THSarabunNew.ttf',       b: 'C:\\Windows\\Fonts\\THSarabunNew Bold.ttf' },
-  { r: path.join(__dirname,'fonts','Sarabun-Regular.ttf'), b: path.join(__dirname,'fonts','Sarabun-Bold.ttf') },
+  { r: 'C:\\Windows\\Fonts\\THSarabunNew.ttf',        b: 'C:\\Windows\\Fonts\\THSarabunNew Bold.ttf' },
 ];
 let FONT_REGULAR = null, FONT_BOLD = null;
 for (const f of FONT_CANDIDATES) {
@@ -281,7 +282,7 @@ app.post('/api/invoices', async (req, res) => {
   writeDB(db);
 
   // LINE Messaging API
-  const payUrl = `http://localhost:${PORT}/pay/${payToken}`;
+  const payUrl = `${BASE_URL}/pay/${payToken}`;
   const msg = `📋 แจ้งค่าใช้จ่ายประจำเดือน ${month}\n` +
     `ห้อง: ${room.number} (${room.tenantName})\n` +
     `━━━━━━━━━━━━━━\n` +
@@ -337,7 +338,7 @@ app.post('/api/pay/:token', upload.single('slip'), async (req, res) => {
   writeDB(db);
 
   // LINE Messaging API
-  const receiptUrl = `http://localhost:${PORT}/receipts/${invoice.receiptFile}`;
+  const receiptUrl = `${BASE_URL}/receipts/${invoice.receiptFile}`;
   const msg = `✅ ยืนยันการชำระเงิน\n` +
     `ห้อง: ${room.number} (${room.tenantName})\n` +
     `ใบเสร็จเลขที่: ${invoice.receiptNo}\n` +
@@ -359,7 +360,7 @@ app.get('/pay/:token', (req, res) => {
 
 // ─── Start ───────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`\n🚀 Utility Payment System running at http://localhost:${PORT}`);
-  console.log(`📊 Admin Dashboard: http://localhost:${PORT}`);
+  console.log(`\n🚀 Utility Payment System running at ${BASE_URL}`);
+  console.log(`📊 Admin Dashboard: ${BASE_URL}`);
   console.log(`📁 DB: ${DB_PATH}\n`);
 });
