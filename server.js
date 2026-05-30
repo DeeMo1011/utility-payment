@@ -359,7 +359,7 @@ app.get('/pay/:token', (req, res) => {
 });
 
 // ─── Start ───────────────────────────────────────
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 Utility Payment System running at ${BASE_URL}`);
   console.log(`📊 Admin Dashboard: ${BASE_URL}`);
   console.log(`📁 DB: ${DB_PATH}\n`);
