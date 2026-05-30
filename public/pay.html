@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ยืนยันการชำระเงิน</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #F1F5F9; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .card { background: #fff; border-radius: 16px; padding: 32px; max-width: 480px; width: 100%; box-shadow: 0 4px 24px rgba(0,0,0,.1); }
+  h1 { font-size: 20px; color: #065A82; margin-bottom: 4px; }
+  .sub { font-size: 13px; color: #64748B; margin-bottom: 24px; }
+  .info-box { background: #F0F9FF; border-radius: 10px; padding: 16px; margin-bottom: 20px; }
+  .info-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 14px; }
+  .info-row.total { font-weight: 700; font-size: 18px; color: #065A82; border-top: 1px solid #BAE6FD; margin-top: 6px; padding-top: 10px; }
+  .bank-box { background: #ECFDF5; border-radius: 10px; padding: 14px; margin-bottom: 20px; font-size: 13px; color: #065F46; }
+  label { display: block; font-size: 13px; color: #64748B; margin-bottom: 6px; font-weight: 600; }
+  .upload-area { border: 2px dashed #CBD5E1; border-radius: 10px; padding: 28px; text-align: center; cursor: pointer; transition: .2s; margin-bottom: 16px; }
+  .upload-area:hover, .upload-area.drag { border-color: #0D9488; background: #F0FDF4; }
+  .upload-area input { display: none; }
+  .upload-area .icon { font-size: 36px; margin-bottom: 8px; }
+  .upload-area p { font-size: 13px; color: #64748B; }
+  #preview { max-width: 100%; border-radius: 8px; margin-top: 12px; display: none; }
+  .btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 16px; font-weight: 700; cursor: pointer; transition: .2s; }
+  .btn-pay { background: #0D9488; color: #fff; }
+  .btn-pay:hover { background: #0f766e; }
+  .btn-pay:disabled { background: #94A3B8; cursor: not-allowed; }
+  .alert { padding: 12px 16px; border-radius: 8px; font-size: 13px; margin-bottom: 16px; display: none; }
+  .alert-ok  { background: #DCFCE7; color: #166534; }
+  .alert-err { background: #FEE2E2; color: #991B1B; }
+  .success { text-align: center; display: none; }
+  .success .big { font-size: 64px; }
+  .success h2 { font-size: 22px; color: #0D9488; margin: 12px 0 6px; }
+  .success p { font-size: 14px; color: #64748B; margin-bottom: 16px; }
+  .receipt-btn { display: inline-block; padding: 12px 24px; background: #065A82; color: #fff; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px; }
+  .paid-banner { background: #DCFCE7; border-radius: 10px; padding: 20px; text-align: center; color: #166534; font-size: 15px; font-weight: 600; margin-bottom: 16px; }
+  .spinner { display: inline-block; width: 18px; height: 18px; border: 3px solid rgba(255,255,255,.3); border-radius: 50%; border-top-color: #fff; animation: spin .6s linear infinite; vertical-align: middle; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="card">
+  <!-- Loading -->
+  <div id="loading" style="text-align:center;padding:40px;color:#64748B">⏳ กำลังโหลดข้อมูล...</div>
+
+  <!-- Not found -->
+  <div id="notFound" style="display:none;text-align:center;padding:40px">
+    <div style="font-size:48px">❌</div>
+    <h2 style="color:#EF4444;margin:12px 0">ไม่พบใบแจ้งหนี้</h2>
+    <p style="color:#64748B">ลิงก์อาจหมดอายุหรือไม่ถูกต้อง</p>
+  </div>
+
+  <!-- Already paid -->
+  <div id="alreadyPaid" style="display:none">
+    <h1>🏠 ระบบชำระเงิน</h1>
+    <p class="sub">ขอบคุณสำหรับการชำระเงิน</p>
+    <div class="paid-banner">✅ ชำระเงินเรียบร้อยแล้ว<br><span style="font-size:13px;font-weight:400">ใบเสร็จถูกส่งผ่าน Line แล้ว</span></div>
+  </div>
+
+  <!-- Form -->
+  <div id="form" style="display:none">
+    <h1>🏠 <span id="ownerName"></span></h1>
+    <p class="sub">กรุณายืนยันการชำระค่าใช้จ่ายประจำเดือน</p>
+
+    <div class="alert" id="alert"></div>
+
+    <div class="info-box">
+      <div class="info-row"><span>ห้อง</span><strong id="roomNum"></strong></div>
+      <div class="info-row"><span>ผู้เช่า</span><span id="tenantName"></span></div>
+      <div class="info-row"><span>เดือน</span><span id="month"></span></div>
+      <div class="info-row"><span>💧 ค่าน้ำ</span><span id="waterCost"></span></div>
+      <div class="info-row"><span>⚡ ค่าไฟ</span><span id="elecCost"></span></div>
+      <div class="info-row" id="rentRow" style="display:none"><span>🏠 ค่าเช่า</span><span id="rentCost"></span></div>
+      <div class="info-row total"><span>💰 รวมทั้งสิ้น</span><span id="total"></span></div>
+    </div>
+
+    <div class="bank-box" id="bankBox"></div>
+
+    <label>📎 แนบสลิปการโอนเงิน <span style="color:#EF4444">*</span></label>
+    <div class="upload-area" id="uploadArea" onclick="document.getElementById('slipInput').click()"
+         ondragover="event.preventDefault();this.classList.add('drag')"
+         ondragleave="this.classList.remove('drag')"
+         ondrop="handleDrop(event)">
+      <input type="file" id="slipInput" accept="image/*" onchange="handleFile(this.files[0])">
+      <div class="icon">📸</div>
+      <p>คลิกเพื่อเลือกรูปสลิป หรือลาก & วางที่นี่</p>
+      <p style="font-size:11px;margin-top:4px">รองรับ JPG, PNG (ไม่เกิน 10MB)</p>
+    </div>
+    <img id="preview" alt="preview">
+
+    <button class="btn btn-pay" id="confirmBtn" onclick="confirm()" disabled>
+      ยืนยันการชำระเงิน
+    </button>
+  </div>
+
+  <!-- Success -->
+  <div class="success" id="success">
+    <div class="big">🎉</div>
+    <h2>ชำระเงินสำเร็จ!</h2>
+    <p>ระบบออกใบเสร็จให้แล้ว<br>กรุณาตรวจสอบ Line ของท่าน</p>
+    <p style="font-size:13px;color:#0D9488;margin-bottom:20px">ใบเสร็จเลขที่: <strong id="receiptNo"></strong></p>
+    <a id="receiptLink" href="#" target="_blank" class="receipt-btn">📄 ดาวน์โหลดใบเสร็จ PDF</a>
+  </div>
+</div>
+
+<script>
+const token = location.pathname.split('/pay/')[1];
+let slipFile = null;
+
+async function load() {
+  try {
+    const r = await fetch(`/api/pay/${token}`);
+    const data = await r.json();
+    document.getElementById('loading').style.display = 'none';
+    if (!r.ok) { document.getElementById('notFound').style.display = 'block'; return; }
+    if (data.invoice.status === 'paid') { document.getElementById('alreadyPaid').style.display = 'block'; return; }
+    fill(data);
+    document.getElementById('form').style.display = 'block';
+  } catch(e) {
+    document.getElementById('loading').innerHTML = '❌ เกิดข้อผิดพลาด กรุณาลองใหม่';
+  }
+}
+
+function fill({ invoice, room, settings }) {
+  document.getElementById('ownerName').textContent = settings.ownerName;
+  document.getElementById('roomNum').textContent   = room.number;
+  document.getElementById('tenantName').textContent = room.tenantName;
+  document.getElementById('month').textContent     = invoice.month;
+  document.getElementById('waterCost').textContent = `${invoice.waterCost.toLocaleString()} บาท`;
+  document.getElementById('elecCost').textContent  = `${invoice.electricCost.toLocaleString()} บาท`;
+  if (invoice.rent > 0) {
+    document.getElementById('rentRow').style.display = 'flex';
+    document.getElementById('rentCost').textContent  = `${invoice.rent.toLocaleString()} บาท`;
+  }
+  document.getElementById('total').textContent = `${invoice.total.toLocaleString()} บาท`;
+  document.getElementById('bankBox').innerHTML = `🏦 <strong>ช่องทางการชำระ:</strong><br>${settings.bankAccount}`;
+}
+
+function handleFile(file) {
+  if (!file) return;
+  slipFile = file;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = document.getElementById('preview');
+    img.src = e.target.result;
+    img.style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+  document.getElementById('uploadArea').style.borderColor = '#0D9488';
+  document.getElementById('uploadArea').style.background  = '#F0FDF4';
+  document.getElementById('confirmBtn').disabled = false;
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('uploadArea').classList.remove('drag');
+  const file = e.dataTransfer.files[0];
+  if (file) handleFile(file);
+}
+
+async function confirm() {
+  if (!slipFile) return showAlert('กรุณาแนบสลิปก่อนกดยืนยัน', 'err');
+  const btn = document.getElementById('confirmBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> กำลังดำเนินการ...';
+
+  const fd = new FormData();
+  fd.append('slip', slipFile);
+
+  try {
+    const r = await fetch(`/api/pay/${token}`, { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!r.ok) { showAlert(data.error || 'เกิดข้อผิดพลาด', 'err'); btn.disabled=false; btn.innerHTML='ยืนยันการชำระเงิน'; return; }
+    document.getElementById('form').style.display = 'none';
+    document.getElementById('receiptNo').textContent = data.receiptNo;
+    document.getElementById('receiptLink').href = `/receipts/${data.receiptFile}`;
+    document.getElementById('success').style.display = 'block';
+  } catch(e) {
+    showAlert('เกิดข้อผิดพลาด กรุณาลองใหม่', 'err');
+    btn.disabled=false; btn.innerHTML='ยืนยันการชำระเงิน';
+  }
+}
+
+function showAlert(msg, type) {
+  const el = document.getElementById('alert');
+  el.textContent = msg; el.className = `alert alert-${type}`; el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 5000);
+}
+
+load();
+</script>
+</body>
+</html>

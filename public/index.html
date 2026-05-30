@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Utility Payment — Admin</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #F1F5F9; color: #1E293B; }
+  :root {
+    --primary: #065A82; --accent: #0D9488; --warn: #F59E0B;
+    --danger: #EF4444; --gray: #64748B; --light: #F8FAFC;
+  }
+
+  /* Layout */
+  header { background: var(--primary); color: #fff; padding: 14px 24px; display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 18px; }
+  nav { background: #fff; border-bottom: 1px solid #E2E8F0; display: flex; gap: 4px; padding: 0 16px; }
+  nav button { padding: 10px 18px; border: none; background: none; cursor: pointer; font-size: 13px; color: var(--gray); border-bottom: 3px solid transparent; transition: .2s; }
+  nav button.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+  main { padding: 24px; max-width: 1100px; margin: 0 auto; }
+  .tab { display: none; } .tab.active { display: block; }
+
+  /* Cards */
+  .card { background: #fff; border-radius: 10px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 16px; }
+  .card h2 { font-size: 15px; color: var(--primary); margin-bottom: 14px; font-weight: 600; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+
+  /* Stat boxes */
+  .stat { background: #fff; border-radius: 10px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  .stat .num { font-size: 36px; font-weight: 700; }
+  .stat .lbl { font-size: 12px; color: var(--gray); margin-top: 4px; }
+
+  /* Form */
+  label { display: block; font-size: 12px; color: var(--gray); margin-bottom: 4px; margin-top: 10px; }
+  input, select { width: 100%; padding: 8px 12px; border: 1px solid #CBD5E1; border-radius: 6px; font-size: 14px; outline: none; }
+  input:focus, select:focus { border-color: var(--primary); }
+  .btn { padding: 8px 18px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; transition: .2s; }
+  .btn-primary { background: var(--primary); color: #fff; }
+  .btn-primary:hover { background: #054a6e; }
+  .btn-accent  { background: var(--accent); color: #fff; }
+  .btn-danger  { background: var(--danger); color: #fff; }
+  .btn-sm { padding: 5px 12px; font-size: 12px; }
+  .mt { margin-top: 12px; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: #F8FAFC; padding: 10px 12px; text-align: left; font-weight: 600; color: var(--gray); border-bottom: 1px solid #E2E8F0; }
+  td { padding: 10px 12px; border-bottom: 1px solid #F1F5F9; vertical-align: middle; }
+  tr:hover td { background: #F8FAFC; }
+
+  /* Badge */
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+  .badge-pending { background: #FEF3C7; color: #92400E; }
+  .badge-paid    { background: #DCFCE7; color: #15803D; }
+
+  /* Alert */
+  .alert { padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; display: none; }
+  .alert-ok  { background: #DCFCE7; color: #166534; }
+  .alert-err { background: #FEE2E2; color: #991B1B; }
+
+  /* Modal */
+  .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 100; align-items: center; justify-content: center; }
+  .modal-bg.open { display: flex; }
+  .modal { background: #fff; border-radius: 12px; padding: 24px; width: 480px; max-width: 95vw; }
+  .modal h3 { font-size: 16px; margin-bottom: 16px; }
+  .modal-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+  @media (max-width: 640px) {
+    .grid2, .grid3 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <span style="font-size:24px">🏠</span>
+  <h1 id="ownerTitle">Utility Payment System</h1>
+</header>
+
+<nav>
+  <button class="active" onclick="showTab('dash')">📊 Dashboard</button>
+  <button onclick="showTab('rooms')">🏠 ห้องพัก</button>
+  <button onclick="showTab('meter')">⚡ จดมิเตอร์</button>
+  <button onclick="showTab('invoices')">📋 Invoice</button>
+  <button onclick="showTab('settings')">⚙️ ตั้งค่า</button>
+</nav>
+
+<main>
+
+<!-- ALERT -->
+<div id="alert" class="alert"></div>
+
+<!-- ─── DASHBOARD ─────────────────────────────── -->
+<div id="tab-dash" class="tab active">
+  <div class="grid3" style="margin-bottom:16px">
+    <div class="stat"><div class="num" id="statRooms">-</div><div class="lbl">ห้องทั้งหมด</div></div>
+    <div class="stat"><div class="num" style="color:var(--warn)" id="statPending">-</div><div class="lbl">รอชำระเงิน</div></div>
+    <div class="stat"><div class="num" style="color:var(--accent)" id="statPaid">-</div><div class="lbl">ชำระแล้วเดือนนี้</div></div>
+  </div>
+  <div class="card">
+    <h2>รายการล่าสุด</h2>
+    <table><thead><tr><th>เดือน</th><th>ห้อง</th><th>ผู้เช่า</th><th>ยอดรวม</th><th>สถานะ</th><th>ดำเนินการ</th></tr></thead>
+    <tbody id="dashTable"></tbody></table>
+  </div>
+</div>
+
+<!-- ─── ROOMS ─────────────────────────────────── -->
+<div id="tab-rooms" class="tab">
+  <div class="card">
+    <h2>เพิ่มห้องพัก</h2>
+    <div class="grid2">
+      <div><label>เลขห้อง *</label><input id="r-number" placeholder="เช่น 101"></div>
+      <div><label>ชื่อผู้เช่า *</label><input id="r-tenant" placeholder="ชื่อ-นามสกุล"></div>
+      <div><label>เบอร์โทร</label><input id="r-phone" placeholder="08x-xxx-xxxx"></div>
+      <div><label>ค่าเช่ารายเดือน (บาท)</label><input id="r-rent" type="number" placeholder="0 = ไม่คิดค่าเช่า"></div>
+      <div><label>LINE Channel Token (เฉพาะห้อง — ว่างไว้ใช้ default)</label><input id="r-line" placeholder="Channel Access Token"></div>
+      <div><label>LINE User/Group ID (เฉพาะห้อง — ว่างไว้ใช้ default)</label><input id="r-lineuid" placeholder="Uxxxxxxx หรือ Cxxxxxxx"></div>
+    </div>
+    <button class="btn btn-primary mt" onclick="addRoom()">➕ เพิ่มห้อง</button>
+  </div>
+  <div class="card">
+    <h2>รายการห้องทั้งหมด</h2>
+    <table><thead><tr><th>ห้อง</th><th>ผู้เช่า</th><th>เบอร์โทร</th><th>ค่าเช่า</th><th>ดำเนินการ</th></tr></thead>
+    <tbody id="roomsTable"></tbody></table>
+  </div>
+</div>
+
+<!-- ─── METER ──────────────────────────────────── -->
+<div id="tab-meter" class="tab">
+  <div class="card">
+    <h2>บันทึกค่ามิเตอร์ & ออก Invoice</h2>
+    <div class="grid2">
+      <div><label>ห้อง *</label>
+        <select id="m-room"><option value="">-- เลือกห้อง --</option></select>
+      </div>
+      <div><label>ประจำเดือน *</label><input id="m-month" type="month"></div>
+      <div><label>💧 มิเตอร์น้ำ (เก่า)</label><input id="m-waterOld" type="number" placeholder="ค่าครั้งก่อน"></div>
+      <div><label>💧 มิเตอร์น้ำ (ใหม่)</label><input id="m-waterNew" type="number" placeholder="ค่าปัจจุบัน"></div>
+      <div><label>⚡ มิเตอร์ไฟ (เก่า)</label><input id="m-elecOld" type="number" placeholder="ค่าครั้งก่อน"></div>
+      <div><label>⚡ มิเตอร์ไฟ (ใหม่)</label><input id="m-elecNew" type="number" placeholder="ค่าปัจจุบัน"></div>
+    </div>
+    <div id="previewBox" style="display:none;background:#F0F9FF;border-radius:8px;padding:14px;margin-top:14px">
+      <strong>ตัวอย่างการคำนวณ:</strong>
+      <div id="previewText" style="margin-top:6px;font-size:13px;line-height:1.8"></div>
+    </div>
+    <button class="btn btn-accent mt" onclick="createInvoice()" id="invoiceBtn">📋 ออก Invoice & ส่ง Line</button>
+  </div>
+</div>
+
+<!-- ─── INVOICES ───────────────────────────────── -->
+<div id="tab-invoices" class="tab">
+  <div class="card">
+    <h2>รายการ Invoice ทั้งหมด</h2>
+    <table><thead><tr><th>Invoice No.</th><th>เดือน</th><th>ห้อง</th><th>ยอดรวม</th><th>สถานะ</th><th>เอกสาร</th><th>สลิป</th></tr></thead>
+    <tbody id="invTable"></tbody></table>
+  </div>
+</div>
+
+<!-- ─── SETTINGS ──────────────────────────────── -->
+<div id="tab-settings" class="tab">
+  <div class="card">
+    <h2>ตั้งค่าระบบ</h2>
+    <div class="grid2">
+      <div><label>ชื่อเจ้าของ / ชื่อที่พัก</label><input id="s-owner" placeholder="บ้านพักดอนเมือง"></div>
+      <div><label>💧 ราคาน้ำต่อหน่วย (บาท)</label><input id="s-water" type="number" placeholder="18"></div>
+      <div><label>⚡ ราคาไฟต่อหน่วย (บาท)</label><input id="s-elec" type="number" placeholder="8"></div>
+      <div><label>🏦 บัญชีธนาคาร (แสดงในใบแจ้งหนี้)</label><input id="s-bank" placeholder="ธ.กสิกรไทย 123-4-56789-0 ชื่อบัญชี"></div>
+      <div>
+        <label>LINE Channel Access Token
+          <a href="https://developers.line.biz/console/" target="_blank" style="color:var(--accent);font-size:11px;margin-left:6px">→ LINE Developers Console</a>
+        </label>
+        <input id="s-line" placeholder="Channel Access Token (long-lived)">
+      </div>
+      <div>
+        <label>LINE User ID หรือ Group ID (default ทุกห้อง)</label>
+        <input id="s-lineuid" placeholder="Uxxxxxxxxx... หรือ Cxxxxxxxxx...">
+      </div>
+    </div>
+    <button class="btn btn-primary mt" onclick="saveSettings()">💾 บันทึกการตั้งค่า</button>
+  </div>
+  <div class="card">
+    <h2>วิธีตั้งค่า LINE Messaging API</h2>
+    <ol style="font-size:13px;line-height:2.2;padding-left:20px;color:var(--gray)">
+      <li>เข้า <a href="https://developers.line.biz/console/" target="_blank" style="color:var(--accent)">developers.line.biz/console/</a> → Login</li>
+      <li>กด <strong>Create a new provider</strong> → ตั้งชื่อ</li>
+      <li>กด <strong>Create a new channel</strong> → เลือก <strong>Messaging API</strong></li>
+      <li>กรอกข้อมูล Channel → กด Create</li>
+      <li>ไปที่แถบ <strong>Messaging API</strong> → เลื่อนหา <strong>Channel access token</strong> → กด <strong>Issue</strong> → คัดลอกมาวาง</li>
+      <li>หา <strong>User ID</strong> ของผู้รับ: เข้า LINE app → Profile → กด ··· → Share → จะเห็น ID ขึ้นต้นด้วย <code>U</code></li>
+      <li>ผู้เช่าต้อง <strong>Add Official Account เป็นเพื่อน</strong> ก่อนถึงจะรับข้อความได้</li>
+    </ol>
+    <div style="background:#FEF9C3;border-radius:8px;padding:12px;margin-top:12px;font-size:12px;color:#92400E">
+      ⚠️ Free tier ส่งได้ <strong>200 ข้อความ/เดือน</strong> — เพียงพอสำหรับที่พักทั่วไป<br>
+      ถ้าต้องการส่งมากกว่านี้ต้องสมัคร plan เพิ่ม
+    </div>
+  </div>
+</div>
+
+</main>
+
+<!-- Modal: Edit Room -->
+<div class="modal-bg" id="editModal">
+  <div class="modal">
+    <h3>✏️ แก้ไขข้อมูลห้อง</h3>
+    <input type="hidden" id="edit-id">
+    <label>เลขห้อง</label><input id="edit-number">
+    <label>ชื่อผู้เช่า</label><input id="edit-tenant">
+    <label>เบอร์โทร</label><input id="edit-phone">
+    <label>ค่าเช่ารายเดือน (บาท)</label><input id="edit-rent" type="number">
+    <label>LINE Channel Token (เฉพาะห้อง)</label><input id="edit-line">
+    <label>LINE User/Group ID (เฉพาะห้อง)</label><input id="edit-lineuid">
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">ยกเลิก</button>
+      <button class="btn btn-primary" onclick="saveRoom()">บันทึก</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+
+// ─── Utilities ───────────────────────────────────
+function showAlert(msg, type = 'ok') {
+  const el = document.getElementById('alert');
+  el.textContent = msg;
+  el.className = `alert alert-${type}`;
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 4000);
+}
+
+function showTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.querySelectorAll('nav button')[['dash','rooms','meter','invoices','settings'].indexOf(name)].classList.add('active');
+  if (name === 'dash') loadDash();
+  if (name === 'rooms') loadRooms();
+  if (name === 'meter') loadRoomSelect();
+  if (name === 'invoices') loadInvoices();
+  if (name === 'settings') loadSettings();
+}
+
+// ─── Settings ────────────────────────────────────
+let settings = {};
+async function loadSettings() {
+  const r = await fetch('/api/settings');
+  settings = await r.json();
+  document.getElementById('s-owner').value = settings.ownerName || '';
+  document.getElementById('s-water').value = settings.waterRate || 18;
+  document.getElementById('s-elec').value  = settings.electricRate || 8;
+  document.getElementById('s-bank').value  = settings.bankAccount || '';
+  document.getElementById('s-line').value    = settings.lineToken || '';
+  document.getElementById('s-lineuid').value = settings.lineUserId || '';
+}
+async function saveSettings() {
+  const body = {
+    ownerName:    document.getElementById('s-owner').value,
+    waterRate:    Number(document.getElementById('s-water').value),
+    electricRate: Number(document.getElementById('s-elec').value),
+    bankAccount:  document.getElementById('s-bank').value,
+    lineToken:    document.getElementById('s-line').value,
+    lineUserId:   document.getElementById('s-lineuid').value,
+  };
+  await fetch('/api/settings', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  settings = body;
+  document.getElementById('ownerTitle').textContent = body.ownerName || 'Utility Payment System';
+  showAlert('บันทึกการตั้งค่าเรียบร้อย ✅');
+}
+
+// ─── Rooms ───────────────────────────────────────
+let rooms = [];
+async function loadRooms() {
+  const r = await fetch('/api/rooms');
+  rooms = await r.json();
+  const tb = document.getElementById('roomsTable');
+  tb.innerHTML = rooms.length ? rooms.map(r => `
+    <tr>
+      <td><strong>${r.number}</strong></td>
+      <td>${r.tenantName}</td>
+      <td>${r.phone || '-'}</td>
+      <td>${Number(r.rent||0).toLocaleString()} บาท</td>
+      <td>
+        <button class="btn btn-sm btn-primary" onclick="editRoom('${r.id}')">แก้ไข</button>
+        <button class="btn btn-sm btn-danger" style="margin-left:4px" onclick="deleteRoom('${r.id}')">ลบ</button>
+      </td>
+    </tr>`).join('') : `<tr><td colspan="5" style="text-align:center;color:#94A3B8;padding:20px">ยังไม่มีห้องพัก</td></tr>`;
+}
+async function addRoom() {
+  const body = {
+    number: document.getElementById('r-number').value.trim(),
+    tenantName: document.getElementById('r-tenant').value.trim(),
+    phone: document.getElementById('r-phone').value.trim(),
+    rent: document.getElementById('r-rent').value || 0,
+    lineToken:  document.getElementById('r-line').value.trim(),
+    lineUserId: document.getElementById('r-lineuid').value.trim(),
+  };
+  if (!body.number || !body.tenantName) return showAlert('กรุณากรอกเลขห้องและชื่อผู้เช่า', 'err');
+  await fetch('/api/rooms', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  ['r-number','r-tenant','r-phone','r-rent','r-line','r-lineuid'].forEach(id => document.getElementById(id).value = '');
+  showAlert(`เพิ่มห้อง ${body.number} เรียบร้อย ✅`);
+  loadRooms();
+}
+function editRoom(id) {
+  const r = rooms.find(x => x.id === id);
+  document.getElementById('edit-id').value     = r.id;
+  document.getElementById('edit-number').value = r.number;
+  document.getElementById('edit-tenant').value = r.tenantName;
+  document.getElementById('edit-phone').value  = r.phone || '';
+  document.getElementById('edit-rent').value   = r.rent || 0;
+  document.getElementById('edit-line').value    = r.lineToken || '';
+  document.getElementById('edit-lineuid').value = r.lineUserId || '';
+  document.getElementById('editModal').classList.add('open');
+}
+function closeModal() { document.getElementById('editModal').classList.remove('open'); }
+async function saveRoom() {
+  const id = document.getElementById('edit-id').value;
+  const body = {
+    number: document.getElementById('edit-number').value,
+    tenantName: document.getElementById('edit-tenant').value,
+    phone: document.getElementById('edit-phone').value,
+    rent: document.getElementById('edit-rent').value,
+    lineToken:  document.getElementById('edit-line').value,
+    lineUserId: document.getElementById('edit-lineuid').value,
+  };
+  await fetch(`/api/rooms/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  closeModal(); showAlert('แก้ไขข้อมูลห้องเรียบร้อย ✅'); loadRooms();
+}
+async function deleteRoom(id) {
+  if (!confirm('ลบห้องนี้?')) return;
+  await fetch(`/api/rooms/${id}`, { method: 'DELETE' });
+  showAlert('ลบห้องเรียบร้อย'); loadRooms();
+}
+
+// ─── Meter / Invoice ─────────────────────────────
+async function loadRoomSelect() {
+  const r = await fetch('/api/rooms'); rooms = await r.json();
+  const sel = document.getElementById('m-room');
+  sel.innerHTML = '<option value="">-- เลือกห้อง --</option>' +
+    rooms.map(r => `<option value="${r.id}">${r.number} — ${r.tenantName}</option>`).join('');
+  // default month
+  const now = new Date();
+  document.getElementById('m-month').value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  // preview on change
+  ['m-waterOld','m-waterNew','m-elecOld','m-elecNew','m-room'].forEach(id => {
+    document.getElementById(id).addEventListener('input', updatePreview);
+  });
+}
+async function updatePreview() {
+  const roomId = document.getElementById('m-room').value;
+  const room = rooms.find(r => r.id === roomId);
+  const r = await fetch('/api/settings'); const s = await r.json();
+  const wOld = Number(document.getElementById('m-waterOld').value) || 0;
+  const wNew = Number(document.getElementById('m-waterNew').value) || 0;
+  const eOld = Number(document.getElementById('m-elecOld').value) || 0;
+  const eNew = Number(document.getElementById('m-elecNew').value) || 0;
+  if (!roomId || wNew <= wOld || eNew <= eOld) { document.getElementById('previewBox').style.display='none'; return; }
+  const wCost = (wNew - wOld) * s.waterRate;
+  const eCost = (eNew - eOld) * s.electricRate;
+  const rent  = Number(room?.rent || 0);
+  const total = wCost + eCost + rent;
+  document.getElementById('previewText').innerHTML =
+    `💧 น้ำ: ${wNew-wOld} หน่วย × ${s.waterRate} = <strong>${wCost.toLocaleString()}</strong> บาท<br>` +
+    `⚡ ไฟ: ${eNew-eOld} หน่วย × ${s.electricRate} = <strong>${eCost.toLocaleString()}</strong> บาท<br>` +
+    (rent>0 ? `🏠 ค่าเช่า: <strong>${rent.toLocaleString()}</strong> บาท<br>` : '') +
+    `<hr style="margin:6px 0;border-color:#E2E8F0">💰 รวม: <strong style="font-size:16px;color:var(--primary)">${total.toLocaleString()} บาท</strong>`;
+  document.getElementById('previewBox').style.display = 'block';
+}
+async function createInvoice() {
+  const btn = document.getElementById('invoiceBtn');
+  btn.disabled = true; btn.textContent = '⏳ กำลังดำเนินการ...';
+  const body = {
+    roomId:      document.getElementById('m-room').value,
+    month:       document.getElementById('m-month').value,
+    waterOld:    document.getElementById('m-waterOld').value,
+    waterNew:    document.getElementById('m-waterNew').value,
+    electricOld: document.getElementById('m-elecOld').value,
+    electricNew: document.getElementById('m-elecNew').value,
+  };
+  if (!body.roomId || !body.month || !body.waterOld || !body.waterNew || !body.electricOld || !body.electricNew)
+    { showAlert('กรุณากรอกข้อมูลให้ครบ', 'err'); btn.disabled=false; btn.textContent='📋 ออก Invoice & ส่ง Line'; return; }
+  const r = await fetch('/api/invoices', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const data = await r.json();
+  btn.disabled=false; btn.textContent='📋 ออก Invoice & ส่ง Line';
+  if (data.error) return showAlert(data.error, 'err');
+  showAlert(`✅ ออก Invoice ${data.invoiceNo} เรียบร้อย ส่ง Line แล้ว! ลิงก์จ่ายเงิน: /pay/${data.payToken}`);
+}
+
+// ─── Invoices ────────────────────────────────────
+async function loadInvoices() {
+  const [ir, rr] = await Promise.all([fetch('/api/invoices'), fetch('/api/rooms')]);
+  const invs = await ir.json(); rooms = await rr.json();
+  const tb = document.getElementById('invTable');
+  if (!invs.length) { tb.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#94A3B8;padding:20px">ยังไม่มี Invoice</td></tr>'; return; }
+  tb.innerHTML = [...invs].reverse().map(inv => {
+    const room = rooms.find(r => r.id === inv.roomId);
+    return `<tr>
+      <td><strong>${inv.invoiceNo}</strong></td>
+      <td>${inv.month}</td>
+      <td>${room ? room.number + ' — ' + room.tenantName : '-'}</td>
+      <td>${inv.total.toLocaleString()} บาท</td>
+      <td><span class="badge badge-${inv.status}">${inv.status === 'paid' ? '✅ ชำระแล้ว' : '⏳ รอชำระ'}</span></td>
+      <td>
+        ${inv.invoiceFile ? `<a href="/receipts/${inv.invoiceFile}" target="_blank" class="btn btn-sm btn-primary">Invoice</a>` : '-'}
+        ${inv.receiptFile ? `<a href="/receipts/${inv.receiptFile}" target="_blank" class="btn btn-sm btn-accent" style="margin-left:4px">ใบเสร็จ</a>` : ''}
+      </td>
+      <td>${inv.slipFile ? `<a href="/uploads/${inv.slipFile}" target="_blank" class="btn btn-sm" style="background:#F1F5F9">สลิป</a>` : '-'}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── Dashboard ───────────────────────────────────
+async function loadDash() {
+  const [ir, rr, sr] = await Promise.all([fetch('/api/invoices'), fetch('/api/rooms'), fetch('/api/settings')]);
+  const invs = await ir.json(); rooms = await rr.json(); settings = await sr.json();
+  document.getElementById('ownerTitle').textContent = settings.ownerName || 'Utility Payment System';
+  const now = new Date(); const thisMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const pending = invs.filter(i => i.status === 'pending').length;
+  const paidThisMonth = invs.filter(i => i.status === 'paid' && i.month === thisMonth).length;
+  document.getElementById('statRooms').textContent   = rooms.length;
+  document.getElementById('statPending').textContent = pending;
+  document.getElementById('statPaid').textContent    = paidThisMonth;
+  const tb = document.getElementById('dashTable');
+  const recent = [...invs].reverse().slice(0, 10);
+  tb.innerHTML = recent.map(inv => {
+    const room = rooms.find(r => r.id === inv.roomId);
+    return `<tr>
+      <td>${inv.month}</td>
+      <td>${room?.number || '-'}</td>
+      <td>${room?.tenantName || '-'}</td>
+      <td>${inv.total.toLocaleString()} บาท</td>
+      <td><span class="badge badge-${inv.status}">${inv.status === 'paid' ? '✅ ชำระแล้ว' : '⏳ รอชำระ'}</span></td>
+      <td>${inv.receiptFile ? `<a href="/receipts/${inv.receiptFile}" target="_blank" class="btn btn-sm btn-accent">ใบเสร็จ</a>` : ''}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6" style="text-align:center;color:#94A3B8;padding:20px">ยังไม่มีรายการ</td></tr>';
+}
+
+// ─── Init ─────────────────────────────────────────
+loadDash();
+loadSettings();
+</script>
+</body>
+</html>
