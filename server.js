@@ -6,16 +6,74 @@ const { v4: uuidv4 } = require('uuid');
 const cors   = require('cors');
 const fs     = require('fs');
 const path   = require('path');
+const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 
+// ─── PostgreSQL ───────────────────────────────────
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+});
+
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS settings (
+      id SERIAL PRIMARY KEY,
+      water_rate NUMERIC DEFAULT 18,
+      electric_rate NUMERIC DEFAULT 8,
+      owner_name TEXT DEFAULT 'ชื่อเจ้าของ',
+      bank_account TEXT DEFAULT 'ธนาคาร xxx เลขบัญชี xxx',
+      line_token TEXT DEFAULT '',
+      line_user_id TEXT DEFAULT ''
+    )
+  `);
+  await pool.query(`INSERT INTO settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS rooms (
+      id TEXT PRIMARY KEY,
+      number TEXT,
+      tenant_name TEXT,
+      rent NUMERIC DEFAULT 0,
+      line_token TEXT DEFAULT '',
+      line_user_id TEXT DEFAULT '',
+      created_at TEXT
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS invoices (
+      id TEXT PRIMARY KEY,
+      invoice_no TEXT,
+      room_id TEXT,
+      month TEXT,
+      water_old NUMERIC,
+      water_new NUMERIC,
+      water_cost NUMERIC,
+      electric_old NUMERIC,
+      electric_new NUMERIC,
+      electric_cost NUMERIC,
+      rent NUMERIC DEFAULT 0,
+      total NUMERIC,
+      pay_token TEXT,
+      status TEXT DEFAULT 'pending',
+      issued_at TEXT,
+      paid_at TEXT,
+      slip_file TEXT,
+      receipt_no TEXT,
+      receipt_file TEXT,
+      invoice_file TEXT
+    )
+  `);
+  console.log('[DB] Tables ready');
+}
+
 // ─── Paths ───────────────────────────────────────
-const DB_PATH      = path.join(__dirname, 'db.json');
 const UPLOADS_DIR  = path.join(__dirname, 'uploads');
 const RECEIPTS_DIR = path.join(__dirname, 'receipts');
-
 [UPLOADS_DIR, RECEIPTS_DIR].forEach(d => fs.mkdirSync(d, { recursive: true }));
 
 // ─── Middleware ───────────────────────────────────
@@ -25,7 +83,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads',  express.static(UPLOADS_DIR));
 app.use('/receipts', express.static(RECEIPTS_DIR));
 
-// ─── Multer (slip upload) ─────────────────────────
+// ─── Multer ───────────────────────────────────────
 const storage = multer.diskStorage({
   destination: UPLOADS_DIR,
   filename: (req, file, cb) => cb(null, `slip_${Date.now()}${path.extname(file.originalname)}`)
@@ -39,31 +97,9 @@ const upload = multer({
   }
 });
 
-// ─── DB helpers ──────────────────────────────────
-function readDB() {
-  if (!fs.existsSync(DB_PATH)) {
-    const init = {
-      settings: { waterRate: 18, electricRate: 8, ownerName: 'ชื่อเจ้าของ', bankAccount: 'ธนาคาร xxx เลขบัญชี xxx', lineToken: '', lineUserId: '' },
-      rooms: [],
-      invoices: []
-    };
-    fs.writeFileSync(DB_PATH, JSON.stringify(init, null, 2));
-    return init;
-  }
-  return JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
-}
-
-function writeDB(data) {
-  fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
-}
-
 // ─── LINE Messaging API ───────────────────────────
-// token = Channel Access Token, to = User ID หรือ Group ID
 async function sendLine(token, to, message) {
-  if (!token || !to) {
-    console.log('[LINE] ยังไม่ได้ตั้งค่า Channel Token หรือ User/Group ID — ข้าม');
-    return;
-  }
+  if (!token || !to) { console.log('[LINE] ไม่ได้ตั้งค่า — ข้าม'); return; }
   try {
     await axios.post('https://api.line.me/v2/bot/message/push',
       { to, messages: [{ type: 'text', text: message }] },
@@ -75,12 +111,12 @@ async function sendLine(token, to, message) {
   }
 }
 
-// ─── Font paths (Windows system Thai fonts) ───────
+// ─── Font ─────────────────────────────────────────
 const FONT_CANDIDATES = [
   { r: path.join(__dirname,'fonts','Sarabun-Regular.ttf'), b: path.join(__dirname,'fonts','Sarabun-Bold.ttf') },
-  { r: 'C:\\Windows\\Fonts\\leelawad.ttf',            b: 'C:\\Windows\\Fonts\\leelawdb.ttf' },
-  { r: 'C:\\Windows\\Fonts\\tahoma.ttf',              b: 'C:\\Windows\\Fonts\\tahomabd.ttf' },
-  { r: 'C:\\Windows\\Fonts\\THSarabunNew.ttf',        b: 'C:\\Windows\\Fonts\\THSarabunNew Bold.ttf' },
+  { r: 'C:\\Windows\\Fonts\\leelawad.ttf', b: 'C:\\Windows\\Fonts\\leelawdb.ttf' },
+  { r: 'C:\\Windows\\Fonts\\tahoma.ttf',   b: 'C:\\Windows\\Fonts\\tahomabd.ttf' },
+  { r: 'C:\\Windows\\Fonts\\THSarabunNew.ttf', b: 'C:\\Windows\\Fonts\\THSarabunNew Bold.ttf' },
 ];
 let FONT_REGULAR = null, FONT_BOLD = null;
 for (const f of FONT_CANDIDATES) {
@@ -89,7 +125,7 @@ for (const f of FONT_CANDIDATES) {
 const hasThaiFonts = !!FONT_REGULAR;
 console.log(hasThaiFonts ? `[PDF] Thai font: ${FONT_REGULAR}` : '[PDF] ไม่พบ font ไทย');
 
-// ─── PDF Receipt / Invoice ────────────────────────
+// ─── PDF ──────────────────────────────────────────
 function generatePDF(invoice, room, settings, type = 'receipt') {
   return new Promise((resolve, reject) => {
     const filename = `${type}_${invoice.id}.pdf`;
@@ -98,40 +134,31 @@ function generatePDF(invoice, room, settings, type = 'receipt') {
     const stream = fs.createWriteStream(filepath);
     doc.pipe(stream);
 
-    // Register Thai fonts if available
     if (hasThaiFonts) {
       doc.registerFont('Regular', FONT_REGULAR);
       doc.registerFont('Bold',    FONT_BOLD);
     }
     const fontRegular = hasThaiFonts ? 'Regular' : 'Helvetica';
     const fontBold    = hasThaiFonts ? 'Bold'    : 'Helvetica-Bold';
+    const isReceipt   = type === 'receipt';
+    const title       = isReceipt ? 'ใบเสร็จรับเงิน' : 'ใบแจ้งหนี้';
+    const docNo       = isReceipt ? invoice.receiptNo : invoice.invoiceNo;
 
-    const isReceipt = type === 'receipt';
-    const title     = isReceipt ? 'ใบเสร็จรับเงิน' : 'ใบแจ้งหนี้';
-    const docNo     = isReceipt ? invoice.receiptNo : invoice.invoiceNo;
-
-    // Header
     doc.fontSize(22).font(fontBold).text(settings.ownerName, { align: 'center' });
     doc.fontSize(16).font(fontBold).text(title, { align: 'center' });
     doc.moveDown(0.5);
-
-    // Meta
     doc.fontSize(11).font(fontRegular);
     doc.text(`เลขที่: ${docNo}`, { align: 'right' });
     doc.text(`วันที่: ${isReceipt ? invoice.paidAt : invoice.issuedAt}`, { align: 'right' });
     doc.moveDown(0.5);
-
-    // Divider
     doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke();
     doc.moveDown(0.5);
 
-    // Room info
     doc.font(fontBold).text('ข้อมูลผู้เช่า');
     doc.font(fontRegular);
     doc.text(`ห้อง: ${room.number}  |  ผู้เช่า: ${room.tenantName}`);
     doc.moveDown(0.5);
 
-    // Meter
     doc.font(fontBold).text('ข้อมูลมิเตอร์');
     doc.font(fontRegular);
     const waterUsed = invoice.waterNew - invoice.waterOld;
@@ -139,10 +166,9 @@ function generatePDF(invoice, room, settings, type = 'receipt') {
     doc.text(`มิเตอร์น้ำ:  ${invoice.waterOld} ถึง ${invoice.waterNew}  (ใช้ ${waterUsed} หน่วย x ${settings.waterRate} บาท)`);
     doc.text(`มิเตอร์ไฟ:  ${invoice.electricOld} ถึง ${invoice.electricNew}  (ใช้ ${elecUsed} หน่วย x ${settings.electricRate} บาท)`);
     doc.moveDown(0.5);
-
-    // Items table
     doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke();
     doc.moveDown(0.3);
+
     doc.font(fontBold);
     doc.text('รายการ', 50, doc.y, { width: 300 });
     doc.text('จำนวน', 350, doc.y - doc.currentLineHeight(), { width: 80, align: 'right' });
@@ -169,14 +195,11 @@ function generatePDF(invoice, room, settings, type = 'receipt') {
     doc.moveDown(0.3);
     doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke();
     doc.moveDown(0.3);
-
-    // Total
     doc.font(fontBold).fontSize(14);
     doc.text('รวมทั้งสิ้น', 50, doc.y, { width: 380 });
     doc.text(`${invoice.total.toLocaleString()} บาท`, 430, doc.y - doc.currentLineHeight(), { width: 115, align: 'right' });
     doc.moveDown(1);
 
-    // Payment info
     if (!isReceipt) {
       doc.fontSize(11).font(fontRegular);
       doc.text(`กำหนดชำระ: ภายในสิ้นเดือน`);
@@ -194,163 +217,184 @@ function generatePDF(invoice, room, settings, type = 'receipt') {
   });
 }
 
+// ─── Helpers ─────────────────────────────────────
+function rowToSettings(row) {
+  return { waterRate: Number(row.water_rate), electricRate: Number(row.electric_rate),
+    ownerName: row.owner_name, bankAccount: row.bank_account,
+    lineToken: row.line_token, lineUserId: row.line_user_id };
+}
+function rowToRoom(row) {
+  return { id: row.id, number: row.number, tenantName: row.tenant_name,
+    rent: Number(row.rent), lineToken: row.line_token,
+    lineUserId: row.line_user_id, createdAt: row.created_at };
+}
+function rowToInvoice(row) {
+  return { id: row.id, invoiceNo: row.invoice_no, roomId: row.room_id, month: row.month,
+    waterOld: Number(row.water_old), waterNew: Number(row.water_new), waterCost: Number(row.water_cost),
+    electricOld: Number(row.electric_old), electricNew: Number(row.electric_new), electricCost: Number(row.electric_cost),
+    rent: Number(row.rent), total: Number(row.total), payToken: row.pay_token, status: row.status,
+    issuedAt: row.issued_at, paidAt: row.paid_at, slipFile: row.slip_file,
+    receiptNo: row.receipt_no, receiptFile: row.receipt_file, invoiceFile: row.invoice_file };
+}
+
 // ═══════════════════════════════════════════════════
 //  SETTINGS
 // ═══════════════════════════════════════════════════
-app.get('/api/settings', (req, res) => {
-  const db = readDB();
-  res.json(db.settings);
+app.get('/api/settings', async (req, res) => {
+  const { rows } = await pool.query('SELECT * FROM settings WHERE id = 1');
+  res.json(rowToSettings(rows[0]));
 });
 
-app.put('/api/settings', (req, res) => {
-  const db = readDB();
-  db.settings = { ...db.settings, ...req.body };
-  writeDB(db);
+app.put('/api/settings', async (req, res) => {
+  const { waterRate, electricRate, ownerName, bankAccount, lineToken, lineUserId } = req.body;
+  await pool.query(`UPDATE settings SET
+    water_rate = COALESCE($1, water_rate), electric_rate = COALESCE($2, electric_rate),
+    owner_name = COALESCE($3, owner_name), bank_account = COALESCE($4, bank_account),
+    line_token = COALESCE($5, line_token), line_user_id = COALESCE($6, line_user_id)
+    WHERE id = 1`,
+    [waterRate, electricRate, ownerName, bankAccount, lineToken, lineUserId]);
   res.json({ ok: true });
 });
 
 // ═══════════════════════════════════════════════════
 //  ROOMS
 // ═══════════════════════════════════════════════════
-app.get('/api/rooms', (req, res) => {
-  res.json(readDB().rooms);
+app.get('/api/rooms', async (req, res) => {
+  const { rows } = await pool.query('SELECT * FROM rooms ORDER BY number');
+  res.json(rows.map(rowToRoom));
 });
 
-app.post('/api/rooms', (req, res) => {
-  const db = readDB();
-  const room = { id: uuidv4(), ...req.body, createdAt: new Date().toLocaleDateString('th-TH') };
-  db.rooms.push(room);
-  writeDB(db);
-  res.json(room);
+app.post('/api/rooms', async (req, res) => {
+  const { number, tenantName, rent, lineToken, lineUserId } = req.body;
+  const id = uuidv4();
+  const createdAt = new Date().toLocaleDateString('th-TH');
+  const { rows } = await pool.query(
+    `INSERT INTO rooms (id, number, tenant_name, rent, line_token, line_user_id, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    [id, number, tenantName, rent || 0, lineToken || '', lineUserId || '', createdAt]);
+  res.json(rowToRoom(rows[0]));
 });
 
-app.put('/api/rooms/:id', (req, res) => {
-  const db = readDB();
-  const idx = db.rooms.findIndex(r => r.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Not found' });
-  db.rooms[idx] = { ...db.rooms[idx], ...req.body };
-  writeDB(db);
-  res.json(db.rooms[idx]);
+app.put('/api/rooms/:id', async (req, res) => {
+  const { number, tenantName, rent, lineToken, lineUserId } = req.body;
+  const { rows } = await pool.query(
+    `UPDATE rooms SET number=COALESCE($1,number), tenant_name=COALESCE($2,tenant_name),
+     rent=COALESCE($3,rent), line_token=COALESCE($4,line_token), line_user_id=COALESCE($5,line_user_id)
+     WHERE id=$6 RETURNING *`,
+    [number, tenantName, rent, lineToken, lineUserId, req.params.id]);
+  if (!rows.length) return res.status(404).json({ error: 'Not found' });
+  res.json(rowToRoom(rows[0]));
 });
 
-app.delete('/api/rooms/:id', (req, res) => {
-  const db = readDB();
-  db.rooms = db.rooms.filter(r => r.id !== req.params.id);
-  writeDB(db);
+app.delete('/api/rooms/:id', async (req, res) => {
+  await pool.query('DELETE FROM rooms WHERE id=$1', [req.params.id]);
   res.json({ ok: true });
 });
 
 // ═══════════════════════════════════════════════════
 //  INVOICES
 // ═══════════════════════════════════════════════════
-app.get('/api/invoices', (req, res) => {
-  res.json(readDB().invoices);
+app.get('/api/invoices', async (req, res) => {
+  const { rows } = await pool.query('SELECT * FROM invoices ORDER BY issued_at DESC');
+  res.json(rows.map(rowToInvoice));
 });
 
-// Create invoice from meter reading
 app.post('/api/invoices', async (req, res) => {
-  const db = readDB();
   const { roomId, waterOld, waterNew, electricOld, electricNew, month } = req.body;
 
-  const room = db.rooms.find(r => r.id === roomId);
-  if (!room) return res.status(404).json({ error: 'Room not found' });
+  const { rows: sRows } = await pool.query('SELECT * FROM settings WHERE id=1');
+  const settings = rowToSettings(sRows[0]);
 
-  const { waterRate, electricRate, bankAccount, lineToken, lineUserId, ownerName } = db.settings;
-  const waterCost    = (waterNew - waterOld) * waterRate;
-  const electricCost = (electricNew - electricOld) * electricRate;
-  const rent         = Number(room.rent) || 0;
+  const { rows: rRows } = await pool.query('SELECT * FROM rooms WHERE id=$1', [roomId]);
+  if (!rRows.length) return res.status(404).json({ error: 'Room not found' });
+  const room = rowToRoom(rRows[0]);
+
+  const waterCost    = (waterNew - waterOld) * settings.waterRate;
+  const electricCost = (electricNew - electricOld) * settings.electricRate;
+  const rent         = room.rent || 0;
   const total        = waterCost + electricCost + rent;
   const payToken     = uuidv4().replace(/-/g, '').slice(0, 16);
+  const id           = uuidv4();
 
-  const invoiceCount = db.invoices.length + 1;
-  const invoiceNo    = `INV-${new Date().getFullYear()}-${String(invoiceCount).padStart(4, '0')}`;
+  const { rows: cRows } = await pool.query('SELECT COUNT(*) FROM invoices');
+  const invoiceNo = `INV-${new Date().getFullYear()}-${String(Number(cRows[0].count) + 1).padStart(4, '0')}`;
+  const issuedAt  = new Date().toLocaleDateString('th-TH');
 
   const invoice = {
-    id: uuidv4(), invoiceNo, roomId, month,
+    id, invoiceNo, roomId, month,
     waterOld: Number(waterOld), waterNew: Number(waterNew), waterCost,
     electricOld: Number(electricOld), electricNew: Number(electricNew), electricCost,
-    rent, total, payToken,
-    status: 'pending', // pending | paid
-    issuedAt: new Date().toLocaleDateString('th-TH'),
-    paidAt: null, slipFile: null, receiptNo: null, receiptFile: null,
+    rent, total, payToken, status: 'pending', issuedAt, paidAt: null,
+    slipFile: null, receiptNo: null, receiptFile: null, invoiceFile: null
   };
 
-  // Generate invoice PDF
-  invoice.invoiceFile = await generatePDF(invoice, room, db.settings, 'invoice');
+  invoice.invoiceFile = await generatePDF(invoice, room, settings, 'invoice');
 
-  db.invoices.push(invoice);
-  writeDB(db);
+  await pool.query(`INSERT INTO invoices
+    (id,invoice_no,room_id,month,water_old,water_new,water_cost,electric_old,electric_new,electric_cost,rent,total,pay_token,status,issued_at,invoice_file)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+    [id, invoiceNo, roomId, month, waterOld, waterNew, waterCost,
+     electricOld, electricNew, electricCost, rent, total, payToken, 'pending', issuedAt, invoice.invoiceFile]);
 
-  // LINE Messaging API
   const payUrl = `${BASE_URL}/pay/${payToken}`;
   const msg = `📋 แจ้งค่าใช้จ่ายประจำเดือน ${month}\n` +
-    `ห้อง: ${room.number} (${room.tenantName})\n` +
-    `━━━━━━━━━━━━━━\n` +
-    `💧 ค่าน้ำ: ${waterCost.toLocaleString()} บาท\n` +
-    `⚡ ค่าไฟ: ${electricCost.toLocaleString()} บาท\n` +
+    `ห้อง: ${room.number} (${room.tenantName})\n━━━━━━━━━━━━━━\n` +
+    `💧 ค่าน้ำ: ${waterCost.toLocaleString()} บาท\n⚡ ค่าไฟ: ${electricCost.toLocaleString()} บาท\n` +
     (rent > 0 ? `🏠 ค่าเช่า: ${rent.toLocaleString()} บาท\n` : '') +
-    `━━━━━━━━━━━━━━\n` +
-    `💰 รวม: ${total.toLocaleString()} บาท\n` +
-    `🏦 โอนเงินที่: ${bankAccount}\n\n` +
-    `✅ กดยืนยันการชำระที่:\n${payUrl}`;
+    `━━━━━━━━━━━━━━\n💰 รวม: ${total.toLocaleString()} บาท\n` +
+    `🏦 โอนเงินที่: ${settings.bankAccount}\n\n✅ กดยืนยันการชำระที่:\n${payUrl}`;
 
-  const chanToken = room.lineToken || lineToken;
-  const lineToId  = room.lineUserId || lineUserId;
-  await sendLine(chanToken, lineToId, msg);
-
+  await sendLine(room.lineToken || settings.lineToken, room.lineUserId || settings.lineUserId, msg);
   res.json(invoice);
 });
 
 // ═══════════════════════════════════════════════════
-//  PAYMENT CONFIRMATION (Tenant)
+//  PAYMENT CONFIRMATION
 // ═══════════════════════════════════════════════════
-app.get('/api/pay/:token', (req, res) => {
-  const db = readDB();
-  const invoice = db.invoices.find(i => i.payToken === req.params.token);
-  if (!invoice) return res.status(404).json({ error: 'ไม่พบใบแจ้งหนี้' });
-  const room = db.rooms.find(r => r.id === invoice.roomId);
-  res.json({ invoice, room, settings: { ownerName: db.settings.ownerName, bankAccount: db.settings.bankAccount } });
+app.get('/api/pay/:token', async (req, res) => {
+  const { rows } = await pool.query('SELECT * FROM invoices WHERE pay_token=$1', [req.params.token]);
+  if (!rows.length) return res.status(404).json({ error: 'ไม่พบใบแจ้งหนี้' });
+  const invoice = rowToInvoice(rows[0]);
+  const { rows: rRows } = await pool.query('SELECT * FROM rooms WHERE id=$1', [invoice.roomId]);
+  const room = rowToRoom(rRows[0]);
+  const { rows: sRows } = await pool.query('SELECT * FROM settings WHERE id=1');
+  const settings = rowToSettings(sRows[0]);
+  res.json({ invoice, room, settings: { ownerName: settings.ownerName, bankAccount: settings.bankAccount } });
 });
 
 app.post('/api/pay/:token', upload.single('slip'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'กรุณาแนบสลิปการโอนเงิน' });
 
-  const db = readDB();
-  const idx = db.invoices.findIndex(i => i.payToken === req.params.token);
-  if (idx === -1) return res.status(404).json({ error: 'ไม่พบใบแจ้งหนี้' });
-
-  const invoice = db.invoices[idx];
+  const { rows } = await pool.query('SELECT * FROM invoices WHERE pay_token=$1', [req.params.token]);
+  if (!rows.length) return res.status(404).json({ error: 'ไม่พบใบแจ้งหนี้' });
+  const invoice = rowToInvoice(rows[0]);
   if (invoice.status === 'paid') return res.status(400).json({ error: 'ชำระเงินแล้ว' });
 
-  const room = db.rooms.find(r => r.id === invoice.roomId);
-  const { lineToken, lineUserId, ownerName } = db.settings;
+  const { rows: rRows } = await pool.query('SELECT * FROM rooms WHERE id=$1', [invoice.roomId]);
+  const room = rowToRoom(rRows[0]);
+  const { rows: sRows } = await pool.query('SELECT * FROM settings WHERE id=1');
+  const settings = rowToSettings(sRows[0]);
 
-  // Update invoice
-  const receiptCount = db.invoices.filter(i => i.status === 'paid').length + 1;
-  invoice.status    = 'paid';
-  invoice.paidAt    = new Date().toLocaleDateString('th-TH');
-  invoice.slipFile  = req.file.filename;
-  invoice.receiptNo = `RCP-${new Date().getFullYear()}-${String(receiptCount).padStart(4, '0')}`;
+  const { rows: pRows } = await pool.query(`SELECT COUNT(*) FROM invoices WHERE status='paid'`);
+  const receiptNo  = `RCP-${new Date().getFullYear()}-${String(Number(pRows[0].count) + 1).padStart(4, '0')}`;
+  const paidAt     = new Date().toLocaleDateString('th-TH');
 
-  // Generate receipt PDF
-  invoice.receiptFile = await generatePDF(invoice, room, db.settings, 'receipt');
-  db.invoices[idx] = invoice;
-  writeDB(db);
+  invoice.status      = 'paid';
+  invoice.paidAt      = paidAt;
+  invoice.slipFile    = req.file.filename;
+  invoice.receiptNo   = receiptNo;
+  invoice.receiptFile = await generatePDF(invoice, room, settings, 'receipt');
 
-  // LINE Messaging API
+  await pool.query(`UPDATE invoices SET status='paid',paid_at=$1,slip_file=$2,receipt_no=$3,receipt_file=$4 WHERE pay_token=$5`,
+    [paidAt, invoice.slipFile, receiptNo, invoice.receiptFile, req.params.token]);
+
   const receiptUrl = `${BASE_URL}/receipts/${invoice.receiptFile}`;
-  const msg = `✅ ยืนยันการชำระเงิน\n` +
-    `ห้อง: ${room.number} (${room.tenantName})\n` +
-    `ใบเสร็จเลขที่: ${invoice.receiptNo}\n` +
-    `จำนวน: ${invoice.total.toLocaleString()} บาท\n` +
-    `วันที่: ${invoice.paidAt}\n` +
-    `📄 ดาวน์โหลดใบเสร็จ: ${receiptUrl}`;
+  const msg = `✅ ยืนยันการชำระเงิน\nห้อง: ${room.number} (${room.tenantName})\n` +
+    `ใบเสร็จเลขที่: ${receiptNo}\nจำนวน: ${invoice.total.toLocaleString()} บาท\n` +
+    `วันที่: ${paidAt}\n📄 ดาวน์โหลดใบเสร็จ: ${receiptUrl}`;
 
-  const chanToken = room.lineToken || lineToken;
-  const lineToId  = room.lineUserId || lineUserId;
-  await sendLine(chanToken, lineToId, msg);
-
-  res.json({ ok: true, receiptNo: invoice.receiptNo, receiptFile: invoice.receiptFile });
+  await sendLine(room.lineToken || settings.lineToken, room.lineUserId || settings.lineUserId, msg);
+  res.json({ ok: true, receiptNo, receiptFile: invoice.receiptFile });
 });
 
 // ─── Serve pay page ──────────────────────────────
@@ -359,8 +403,12 @@ app.get('/pay/:token', (req, res) => {
 });
 
 // ─── Start ───────────────────────────────────────
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n🚀 Utility Payment System running at ${BASE_URL}`);
-  console.log(`📊 Admin Dashboard: ${BASE_URL}`);
-  console.log(`📁 DB: ${DB_PATH}\n`);
+initDB().then(() => {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`\n🚀 Utility Payment System running at ${BASE_URL}`);
+    console.log(`📊 Admin Dashboard: ${BASE_URL}\n`);
+  });
+}).catch(err => {
+  console.error('[DB] Init failed:', err);
+  process.exit(1);
 });

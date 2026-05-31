@@ -129,6 +129,28 @@
       "receiptNo": "RCP-2026-0001",
       "receiptFile": "receipt_e054053f-24a5-4f15-a640-f4ed238631c4.pdf",
       "invoiceFile": "invoice_e054053f-24a5-4f15-a640-f4ed238631c4.pdf"
+    },
+    {
+      "id": "3a82cbd7-d230-4dfc-9000-6b39d06a4a1a",
+      "invoiceNo": "INV-2026-0006",
+      "roomId": "dd20f9b7-1746-49d8-a298-5b858fcfacb0",
+      "month": "2026-05",
+      "waterOld": 0,
+      "waterNew": 5,
+      "waterCost": 90,
+      "electricOld": 0,
+      "electricNew": 5,
+      "electricCost": 40,
+      "rent": 4500,
+      "total": 4630,
+      "payToken": "9e1d0f70ca6a4553",
+      "status": "pending",
+      "issuedAt": "30/5/2569",
+      "paidAt": null,
+      "slipFile": null,
+      "receiptNo": null,
+      "receiptFile": null,
+      "invoiceFile": "invoice_3a82cbd7-d230-4dfc-9000-6b39d06a4a1a.pdf"
     }
   ]
 }
