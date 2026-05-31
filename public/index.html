@@ -6,66 +6,169 @@
 <title>Utility Payment — Admin</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Segoe UI', sans-serif; background: #F1F5F9; color: #1E293B; }
   :root {
-    --primary: #065A82; --accent: #0D9488; --warn: #F59E0B;
-    --danger: #EF4444; --gray: #64748B; --light: #F8FAFC;
+    --primary: #a855f7; --accent: #ec4899; --warn: #F59E0B;
+    --danger: #EF4444; --gray: #a78bfa; --light: #1e1b4b;
+    --bg: #0f0a1e; --surface: rgba(255,255,255,0.06);
+    --border: rgba(168,85,247,0.25); --text: #e2d9f3;
   }
 
+  body {
+    font-family: 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Blobs */
+  body::before, body::after, #blob3 {
+    content: ''; position: fixed; border-radius: 50%;
+    filter: blur(80px); opacity: 0.18; pointer-events: none; z-index: 0;
+  }
+  body::before {
+    width: 500px; height: 500px; top: -100px; left: -150px;
+    background: radial-gradient(circle, #7c3aed, transparent 70%);
+    animation: float1 14s ease-in-out infinite;
+  }
+  body::after {
+    width: 400px; height: 400px; bottom: -80px; right: -100px;
+    background: radial-gradient(circle, #db2777, transparent 70%);
+    animation: float2 18s ease-in-out infinite;
+  }
+  #blob3 {
+    width: 350px; height: 350px; top: 40%; left: 50%;
+    background: radial-gradient(circle, #2563eb, transparent 70%);
+    animation: float3 22s ease-in-out infinite;
+  }
+  @keyframes float1 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(40px,30px)} }
+  @keyframes float2 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-30px,40px)} }
+  @keyframes float3 { 0%,100%{transform:translate(-50%,0)} 50%{transform:translate(-50%,30px)} }
+
   /* Layout */
-  header { background: var(--primary); color: #fff; padding: 14px 24px; display: flex; align-items: center; gap: 12px; }
-  header h1 { font-size: 18px; }
-  nav { background: #fff; border-bottom: 1px solid #E2E8F0; display: flex; gap: 4px; padding: 0 16px; }
-  nav button { padding: 10px 18px; border: none; background: none; cursor: pointer; font-size: 13px; color: var(--gray); border-bottom: 3px solid transparent; transition: .2s; }
-  nav button.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
-  main { padding: 24px; max-width: 1100px; margin: 0 auto; }
+  header {
+    background: rgba(15,10,30,0.8);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    color: #fff; padding: 14px 24px;
+    display: flex; align-items: center; gap: 12px;
+    position: relative; z-index: 10;
+  }
+  header h1 {
+    font-size: 18px;
+    background: linear-gradient(90deg, #c084fc, #f472b6);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  nav {
+    background: rgba(15,10,30,0.7);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    display: flex; gap: 4px; padding: 0 16px;
+    position: relative; z-index: 10;
+  }
+  nav button {
+    padding: 10px 18px; border: none; background: none;
+    cursor: pointer; font-size: 13px; color: #a78bfa;
+    border-bottom: 3px solid transparent; transition: .2s;
+  }
+  nav button.active { color: #c084fc; border-bottom-color: #c084fc; font-weight: 600; }
+  main { padding: 24px; max-width: 1100px; margin: 0 auto; position: relative; z-index: 1; }
   .tab { display: none; } .tab.active { display: block; }
 
   /* Cards */
-  .card { background: #fff; border-radius: 10px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 16px; }
-  .card h2 { font-size: 15px; color: var(--primary); margin-bottom: 14px; font-weight: 600; }
+  .card {
+    background: var(--surface);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-top: 1px solid rgba(255,255,255,0.12);
+    border-radius: 14px; padding: 20px;
+    box-shadow: 0 4px 24px rgba(120,40,200,0.12), inset 0 1px 0 rgba(255,255,255,0.08);
+    margin-bottom: 16px;
+  }
+  .card h2 {
+    font-size: 15px; margin-bottom: 14px; font-weight: 600;
+    background: linear-gradient(90deg, #c084fc, #f472b6);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 
   /* Stat boxes */
-  .stat { background: #fff; border-radius: 10px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
-  .stat .num { font-size: 36px; font-weight: 700; }
+  .stat {
+    background: var(--surface);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px;
+    box-shadow: 0 4px 24px rgba(120,40,200,0.12);
+  }
+  .stat .num { font-size: 36px; font-weight: 700; color: #c084fc; }
   .stat .lbl { font-size: 12px; color: var(--gray); margin-top: 4px; }
 
   /* Form */
-  label { display: block; font-size: 12px; color: var(--gray); margin-bottom: 4px; margin-top: 10px; }
-  input, select { width: 100%; padding: 8px 12px; border: 1px solid #CBD5E1; border-radius: 6px; font-size: 14px; outline: none; }
-  input:focus, select:focus { border-color: var(--primary); }
-  .btn { padding: 8px 18px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; transition: .2s; }
-  .btn-primary { background: var(--primary); color: #fff; }
-  .btn-primary:hover { background: #054a6e; }
-  .btn-accent  { background: var(--accent); color: #fff; }
+  label { display: block; font-size: 12px; color: #a78bfa; margin-bottom: 4px; margin-top: 10px; }
+  input, select {
+    width: 100%; padding: 8px 12px;
+    border: 1px solid rgba(168,85,247,0.3);
+    border-radius: 8px; font-size: 14px; outline: none;
+    background: rgba(255,255,255,0.05); color: var(--text);
+    transition: border-color .2s, box-shadow .2s;
+  }
+  input:focus, select:focus {
+    border-color: #a855f7;
+    box-shadow: 0 0 0 3px rgba(168,85,247,0.15);
+    animation: pulse-focus 2s ease-in-out infinite;
+  }
+  @keyframes pulse-focus { 0%,100%{box-shadow:0 0 0 3px rgba(168,85,247,0.15)} 50%{box-shadow:0 0 0 5px rgba(168,85,247,0.08)} }
+  select option { background: #1e1b4b; color: var(--text); }
+
+  .btn { padding: 8px 18px; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; transition: .2s; }
+  .btn-primary { background: linear-gradient(135deg, #7c3aed, #a855f7); color: #fff; box-shadow: 0 2px 12px rgba(168,85,247,0.3); }
+  .btn-primary:hover { box-shadow: 0 4px 20px rgba(168,85,247,0.5); transform: translateY(-1px); }
+  .btn-accent  { background: linear-gradient(135deg, #db2777, #a855f7); color: #fff; box-shadow: 0 2px 12px rgba(236,72,153,0.3); }
+  .btn-accent:hover { box-shadow: 0 4px 20px rgba(236,72,153,0.5); transform: translateY(-1px); }
   .btn-danger  { background: var(--danger); color: #fff; }
   .btn-sm { padding: 5px 12px; font-size: 12px; }
   .mt { margin-top: 12px; }
 
   /* Table */
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { background: #F8FAFC; padding: 10px 12px; text-align: left; font-weight: 600; color: var(--gray); border-bottom: 1px solid #E2E8F0; }
-  td { padding: 10px 12px; border-bottom: 1px solid #F1F5F9; vertical-align: middle; }
-  tr:hover td { background: #F8FAFC; }
+  th {
+    background: rgba(168,85,247,0.1); padding: 10px 12px;
+    text-align: left; font-weight: 600; color: #c084fc;
+    border-bottom: 1px solid var(--border);
+  }
+  td { padding: 10px 12px; border-bottom: 1px solid rgba(168,85,247,0.1); vertical-align: middle; color: var(--text); }
+  tr:hover td { background: rgba(168,85,247,0.05); }
 
   /* Badge */
   .badge { display: inline-block; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 600; }
-  .badge-pending { background: #FEF3C7; color: #92400E; }
-  .badge-paid    { background: #DCFCE7; color: #15803D; }
+  .badge-pending { background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
+  .badge-paid    { background: rgba(34,197,94,0.15); color: #4ade80; border: 1px solid rgba(34,197,94,0.3); }
 
   /* Alert */
-  .alert { padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; display: none; }
-  .alert-ok  { background: #DCFCE7; color: #166534; }
-  .alert-err { background: #FEE2E2; color: #991B1B; }
+  .alert { padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 12px; display: none; backdrop-filter: blur(12px); }
+  .alert-ok  { background: rgba(34,197,94,0.15); color: #4ade80; border: 1px solid rgba(34,197,94,0.3); }
+  .alert-err { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
 
   /* Modal */
-  .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 100; align-items: center; justify-content: center; }
+  .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); backdrop-filter: blur(6px); z-index: 100; align-items: center; justify-content: center; }
   .modal-bg.open { display: flex; }
-  .modal { background: #fff; border-radius: 12px; padding: 24px; width: 480px; max-width: 95vw; }
-  .modal h3 { font-size: 16px; margin-bottom: 16px; }
+  .modal {
+    background: rgba(20,15,40,0.95); border: 1px solid var(--border);
+    border-radius: 16px; padding: 24px; width: 480px; max-width: 95vw;
+    box-shadow: 0 8px 40px rgba(120,40,200,0.3);
+  }
+  .modal h3 { font-size: 16px; margin-bottom: 16px; color: #c084fc; }
   .modal-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+  /* Preview box */
+  #previewBox { background: rgba(168,85,247,0.1) !important; border: 1px solid var(--border); border-radius: 10px; color: var(--text) !important; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: linear-gradient(#7c3aed, #db2777); border-radius: 99px; }
 
   @media (max-width: 640px) {
     .grid2, .grid3 { grid-template-columns: 1fr; }
@@ -74,6 +177,7 @@
 </head>
 <body>
 
+<div id="blob3"></div>
 <header>
   <span style="font-size:24px">🏠</span>
   <h1 id="ownerTitle">Utility Payment System</h1>
