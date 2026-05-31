@@ -27,10 +27,17 @@ async function initDB() {
       owner_name TEXT DEFAULT 'ชื่อเจ้าของ',
       bank_account TEXT DEFAULT 'ธนาคาร xxx เลขบัญชี xxx',
       line_token TEXT DEFAULT '',
-      line_user_id TEXT DEFAULT ''
+      line_user_id TEXT DEFAULT '',
+      owner_line_user_id TEXT DEFAULT ''
     )
   `);
   await pool.query(`INSERT INTO settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+  // migration: เพิ่ม column ถ้ายังไม่มี
+  await pool.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS owner_line_user_id TEXT DEFAULT ''`);
+  await pool.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS cleaning_fee NUMERIC DEFAULT 0`);
+  await pool.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS outstanding_fee NUMERIC DEFAULT 0`);
+  await pool.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS other_fee NUMERIC DEFAULT 0`);
+  await pool.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS other_fee_desc TEXT DEFAULT ''`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS rooms (
@@ -221,7 +228,8 @@ function generatePDF(invoice, room, settings, type = 'receipt') {
 function rowToSettings(row) {
   return { waterRate: Number(row.water_rate), electricRate: Number(row.electric_rate),
     ownerName: row.owner_name, bankAccount: row.bank_account,
-    lineToken: row.line_token, lineUserId: row.line_user_id };
+    lineToken: row.line_token, lineUserId: row.line_user_id,
+    ownerLineUserId: row.owner_line_user_id || '' };
 }
 function rowToRoom(row) {
   return { id: row.id, number: row.number, tenantName: row.tenant_name,
@@ -232,7 +240,9 @@ function rowToInvoice(row) {
   return { id: row.id, invoiceNo: row.invoice_no, roomId: row.room_id, month: row.month,
     waterOld: Number(row.water_old), waterNew: Number(row.water_new), waterCost: Number(row.water_cost),
     electricOld: Number(row.electric_old), electricNew: Number(row.electric_new), electricCost: Number(row.electric_cost),
-    rent: Number(row.rent), total: Number(row.total), payToken: row.pay_token, status: row.status,
+    rent: Number(row.rent), cleaningFee: Number(row.cleaning_fee||0), outstandingFee: Number(row.outstanding_fee||0),
+    otherFee: Number(row.other_fee||0), otherFeeDesc: row.other_fee_desc||'',
+    total: Number(row.total), payToken: row.pay_token, status: row.status,
     issuedAt: row.issued_at, paidAt: row.paid_at, slipFile: row.slip_file,
     receiptNo: row.receipt_no, receiptFile: row.receipt_file, invoiceFile: row.invoice_file };
 }
@@ -246,13 +256,14 @@ app.get('/api/settings', async (req, res) => {
 });
 
 app.put('/api/settings', async (req, res) => {
-  const { waterRate, electricRate, ownerName, bankAccount, lineToken, lineUserId } = req.body;
+  const { waterRate, electricRate, ownerName, bankAccount, lineToken, lineUserId, ownerLineUserId } = req.body;
   await pool.query(`UPDATE settings SET
     water_rate = COALESCE($1, water_rate), electric_rate = COALESCE($2, electric_rate),
     owner_name = COALESCE($3, owner_name), bank_account = COALESCE($4, bank_account),
-    line_token = COALESCE($5, line_token), line_user_id = COALESCE($6, line_user_id)
+    line_token = COALESCE($5, line_token), line_user_id = COALESCE($6, line_user_id),
+    owner_line_user_id = COALESCE($7, owner_line_user_id)
     WHERE id = 1`,
-    [waterRate, electricRate, ownerName, bankAccount, lineToken, lineUserId]);
+    [waterRate, electricRate, ownerName, bankAccount, lineToken, lineUserId, ownerLineUserId]);
   res.json({ ok: true });
 });
 
@@ -300,7 +311,8 @@ app.get('/api/invoices', async (req, res) => {
 });
 
 app.post('/api/invoices', async (req, res) => {
-  const { roomId, waterOld, waterNew, electricOld, electricNew, month } = req.body;
+  const { roomId, waterOld, waterNew, electricOld, electricNew, month,
+          cleaningFee = 0, outstandingFee = 0, otherFee = 0, otherFeeDesc = '' } = req.body;
 
   const { rows: sRows } = await pool.query('SELECT * FROM settings WHERE id=1');
   const settings = rowToSettings(sRows[0]);
@@ -312,7 +324,7 @@ app.post('/api/invoices', async (req, res) => {
   const waterCost    = (waterNew - waterOld) * settings.waterRate;
   const electricCost = (electricNew - electricOld) * settings.electricRate;
   const rent         = room.rent || 0;
-  const total        = waterCost + electricCost + rent;
+  const total        = waterCost + electricCost + rent + Number(cleaningFee) + Number(outstandingFee) + Number(otherFee);
   const payToken     = uuidv4().replace(/-/g, '').slice(0, 16);
   const id           = uuidv4();
 
@@ -324,23 +336,32 @@ app.post('/api/invoices', async (req, res) => {
     id, invoiceNo, roomId, month,
     waterOld: Number(waterOld), waterNew: Number(waterNew), waterCost,
     electricOld: Number(electricOld), electricNew: Number(electricNew), electricCost,
-    rent, total, payToken, status: 'pending', issuedAt, paidAt: null,
+    rent, cleaningFee: Number(cleaningFee), outstandingFee: Number(outstandingFee),
+    otherFee: Number(otherFee), otherFeeDesc,
+    total, payToken, status: 'pending', issuedAt, paidAt: null,
     slipFile: null, receiptNo: null, receiptFile: null, invoiceFile: null
   };
 
   invoice.invoiceFile = await generatePDF(invoice, room, settings, 'invoice');
 
   await pool.query(`INSERT INTO invoices
-    (id,invoice_no,room_id,month,water_old,water_new,water_cost,electric_old,electric_new,electric_cost,rent,total,pay_token,status,issued_at,invoice_file)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+    (id,invoice_no,room_id,month,water_old,water_new,water_cost,electric_old,electric_new,electric_cost,
+     rent,cleaning_fee,outstanding_fee,other_fee,other_fee_desc,total,pay_token,status,issued_at,invoice_file)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
     [id, invoiceNo, roomId, month, waterOld, waterNew, waterCost,
-     electricOld, electricNew, electricCost, rent, total, payToken, 'pending', issuedAt, invoice.invoiceFile]);
+     electricOld, electricNew, electricCost, rent,
+     cleaningFee, outstandingFee, otherFee, otherFeeDesc,
+     total, payToken, 'pending', issuedAt, invoice.invoiceFile]);
 
   const payUrl = `${BASE_URL}/pay/${payToken}`;
   const msg = `📋 แจ้งค่าใช้จ่ายประจำเดือน ${month}\n` +
     `ห้อง: ${room.number} (${room.tenantName})\n━━━━━━━━━━━━━━\n` +
-    `💧 ค่าน้ำ: ${waterCost.toLocaleString()} บาท\n⚡ ค่าไฟ: ${electricCost.toLocaleString()} บาท\n` +
+    `💧 ค่าน้ำ: ${waterCost.toLocaleString()} บาท\n` +
+    `⚡ ค่าไฟ: ${electricCost.toLocaleString()} บาท\n` +
     (rent > 0 ? `🏠 ค่าเช่า: ${rent.toLocaleString()} บาท\n` : '') +
+    (cleaningFee > 0 ? `🧹 ค่าทำความสะอาด: ${Number(cleaningFee).toLocaleString()} บาท\n` : '') +
+    (outstandingFee > 0 ? `⚠️ ค่ายอดค้างชำระ: ${Number(outstandingFee).toLocaleString()} บาท\n` : '') +
+    (otherFee > 0 ? `📝 ${otherFeeDesc || 'ค่าอื่นๆ'}: ${Number(otherFee).toLocaleString()} บาท\n` : '') +
     `━━━━━━━━━━━━━━\n💰 รวม: ${total.toLocaleString()} บาท\n` +
     `🏦 โอนเงินที่: ${settings.bankAccount}\n\n✅ กดยืนยันการชำระที่:\n${payUrl}`;
 
@@ -389,11 +410,17 @@ app.post('/api/pay/:token', upload.single('slip'), async (req, res) => {
     [paidAt, invoice.slipFile, receiptNo, invoice.receiptFile, req.params.token]);
 
   const receiptUrl = `${BASE_URL}/receipts/${invoice.receiptFile}`;
-  const msg = `✅ ยืนยันการชำระเงิน\nห้อง: ${room.number} (${room.tenantName})\n` +
-    `ใบเสร็จเลขที่: ${receiptNo}\nจำนวน: ${invoice.total.toLocaleString()} บาท\n` +
-    `วันที่: ${paidAt}\n📄 ดาวน์โหลดใบเสร็จ: ${receiptUrl}`;
 
-  await sendLine(room.lineToken || settings.lineToken, room.lineUserId || settings.lineUserId, msg);
+  // แจ้งผู้เช่า
+  const tenantMsg = `✅ ยืนยันการชำระเงินเรียบร้อย!\nห้อง: ${room.number}\nใบเสร็จเลขที่: ${receiptNo}\nจำนวน: ${invoice.total.toLocaleString()} บาท\nวันที่: ${paidAt}\n📄 ดาวน์โหลดใบเสร็จ: ${receiptUrl}`;
+  await sendLine(room.lineToken || settings.lineToken, room.lineUserId || settings.lineUserId, tenantMsg);
+
+  // แจ้งเจ้าของ (ใช้ lineToken + ownerLineUserId จาก settings)
+  if (settings.ownerLineUserId) {
+    const ownerMsg = `💰 มีการชำระเงินใหม่!\n━━━━━━━━━━━━━━\nห้อง: ${room.number} — ${room.tenantName}\nใบเสร็จ: ${receiptNo}\nจำนวน: ${invoice.total.toLocaleString()} บาท\nวันที่: ${paidAt}\n📎 สลิป: ${BASE_URL}/uploads/${invoice.slipFile}\n📄 ใบเสร็จ: ${receiptUrl}`;
+    await sendLine(settings.lineToken, settings.ownerLineUserId, ownerMsg);
+  }
+
   res.json({ ok: true, receiptNo, receiptFile: invoice.receiptFile });
 });
 
@@ -405,39 +432,64 @@ app.get('/pay/:token', (req, res) => {
 // ═══════════════════════════════════════════════════
 //  LINE WEBHOOK — ผู้เช่าพิมพ์เลขห้องเพื่อลงทะเบียน
 // ═══════════════════════════════════════════════════
+// helper: ส่ง quick reply เลือกห้อง
+async function sendRoomQuickReply(replyToken, token) {
+  const { rows: roomRows } = await pool.query('SELECT * FROM rooms ORDER BY number');
+  if (!roomRows.length) {
+    await axios.post('https://api.line.me/v2/bot/message/reply',
+      { replyToken, messages: [{ type: 'text', text: 'ยังไม่มีห้องในระบบ กรุณาติดต่อเจ้าของที่พักครับ' }] },
+      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+    );
+    return;
+  }
+  // Quick Reply รองรับสูงสุด 13 ปุ่ม
+  const items = roomRows.slice(0, 13).map(r => ({
+    type: 'action',
+    action: { type: 'message', label: `ห้อง ${r.number}`, text: `ห้อง ${r.number}` }
+  }));
+  await axios.post('https://api.line.me/v2/bot/message/reply',
+    { replyToken, messages: [{
+      type: 'text',
+      text: '🏠 กรุณาเลือกห้องของคุณ\n(กดปุ่มด้านล่าง)',
+      quickReply: { items }
+    }] },
+    { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+  );
+}
+
 app.post('/webhook/line', async (req, res) => {
-  res.sendStatus(200); // ตอบ LINE ก่อนเสมอ
+  res.sendStatus(200);
   try {
     const events = req.body.events || [];
+    const { rows: sRows } = await pool.query('SELECT * FROM settings WHERE id=1');
+    const token = sRows[0]?.line_token;
+    if (!token) return;
+
     for (const event of events) {
+      const userId = event.source.userId;
+
+      // ── ผู้เช่า Add Bot → แสดง quick reply เลือกห้อง ──
+      if (event.type === 'follow') {
+        await sendRoomQuickReply(event.replyToken, token);
+        continue;
+      }
+
       if (event.type !== 'message' || event.message.type !== 'text') continue;
 
-      const userId  = event.source.userId;
       const text    = event.message.text.trim();
-      const { rows: sRows } = await pool.query('SELECT * FROM settings WHERE id=1');
-      const token   = sRows[0]?.line_token;
-      if (!token) continue;
-
-      // ผู้เช่าพิมพ์เลขห้อง เช่น "101" หรือ "ห้อง 101"
       const roomNum = text.replace(/ห้อง\s*/i, '').trim();
       const { rows } = await pool.query(
         'SELECT * FROM rooms WHERE LOWER(number) = LOWER($1)', [roomNum]
       );
 
       if (!rows.length) {
-        // ห้องไม่พบ
-        await axios.post('https://api.line.me/v2/bot/message/reply',
-          { replyToken: event.replyToken, messages: [{ type: 'text',
-            text: `❌ ไม่พบห้อง "${roomNum}"\nกรุณาพิมพ์เลขห้องให้ถูกต้อง เช่น 101` }] },
-          { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
-        );
+        // ไม่พบห้อง → แสดง quick reply ให้เลือกใหม่
+        await sendRoomQuickReply(event.replyToken, token);
         continue;
       }
 
       const room = rows[0];
-      // บันทึก User ID ลงห้องนั้น
       await pool.query('UPDATE rooms SET line_user_id=$1 WHERE id=$2', [userId, room.id]);
-
       await axios.post('https://api.line.me/v2/bot/message/reply',
         { replyToken: event.replyToken, messages: [{ type: 'text',
           text: `✅ ลงทะเบียนสำเร็จ!\nห้อง ${room.number} (${room.tenant_name})\n\nตั้งแต่นี้ระบบจะแจ้งค่าน้ำ-ค่าไฟ และส่งลิงก์ชำระเงินมาที่นี่โดยตรงครับ 🏠` }] },
