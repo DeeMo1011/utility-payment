@@ -233,12 +233,13 @@ async function generatePDF(invoice, room, settings, type = 'receipt') {
     doc.end();
   });
 
-  // Upload PDF ขึ้น Cloudinary
+  // Upload PDF ขึ้น Cloudinary (resource_type: image รองรับ PDF และ serve ถูก content-type)
   const url = await uploadToCloudinary(buffer, {
     folder: 'utility-payment',
     public_id: `${type}_${invoice.id}`,
-    resource_type: 'raw',
-    format: 'pdf'
+    resource_type: 'image',
+    format: 'pdf',
+    flags: 'attachment'
   });
   return url;
 }
