@@ -680,10 +680,10 @@ async function loadInvoices() {
       <td>${inv.total.toLocaleString()} บาท</td>
       <td><span class="badge badge-${inv.status}">${inv.status === 'paid' ? '✅ ชำระแล้ว' : '⏳ รอชำระ'}</span></td>
       <td>
-        ${inv.invoiceFile ? `<a href="${inv.invoiceFile}" target="_blank" class="btn btn-sm btn-primary">Invoice</a>` : '-'}
-        ${inv.receiptFile ? `<a href="${inv.receiptFile}" target="_blank" class="btn btn-sm btn-accent" style="margin-left:4px">ใบเสร็จ</a>` : ''}
+        ${inv.invoiceFile ? `<a href="${inv.invoiceFile.startsWith('http') ? `/api/pdf/${inv.id}?type=invoice` : '/receipts/'+inv.invoiceFile}" target="_blank" class="btn btn-sm btn-primary">Invoice</a>` : '-'}
+        ${inv.receiptFile ? `<a href="${inv.receiptFile.startsWith('http') ? `/api/pdf/${inv.id}?type=receipt` : '/receipts/'+inv.receiptFile}" target="_blank" class="btn btn-sm btn-accent" style="margin-left:4px">ใบเสร็จ</a>` : ''}
       </td>
-      <td>${inv.slipFile ? `<a href="${inv.slipFile}" target="_blank" class="btn btn-sm" style="background:rgba(168,85,247,0.1)">สลิป</a>` : '-'}</td>
+      <td>${inv.slipFile ? `<a href="${inv.slipFile.startsWith('http') ? inv.slipFile : '/uploads/'+inv.slipFile}" target="_blank" class="btn btn-sm" style="background:rgba(168,85,247,0.1)">สลิป</a>` : '-'}</td>
     </tr>`;
   }).join('');
 }
@@ -709,7 +709,7 @@ async function loadDash() {
       <td>${room?.tenantName || inv.tenantName || '-'}</td>
       <td>${inv.total.toLocaleString()} บาท</td>
       <td><span class="badge badge-${inv.status}">${inv.status === 'paid' ? '✅ ชำระแล้ว' : '⏳ รอชำระ'}</span></td>
-      <td>${inv.receiptFile ? `<a href="${inv.receiptFile}" target="_blank" class="btn btn-sm btn-accent">ใบเสร็จ</a>` : ''}</td>
+      <td>${inv.receiptFile ? `<a href="${inv.receiptFile.startsWith('http') ? `/api/pdf/${inv.id}?type=receipt` : '/receipts/'+inv.receiptFile}" target="_blank" class="btn btn-sm btn-accent">ใบเสร็จ</a>` : ''}</td>
     </tr>`;
   }).join('') || '<tr><td colspan="6" style="text-align:center;color:#94A3B8;padding:20px">ยังไม่มีรายการ</td></tr>';
 }

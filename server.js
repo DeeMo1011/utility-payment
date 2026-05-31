@@ -233,13 +233,12 @@ async function generatePDF(invoice, room, settings, type = 'receipt') {
     doc.end();
   });
 
-  // Upload PDF ขึ้น Cloudinary (resource_type: image รองรับ PDF และ serve ถูก content-type)
+  // Upload PDF ขึ้น Cloudinary
   const url = await uploadToCloudinary(buffer, {
     folder: 'utility-payment',
     public_id: `${type}_${invoice.id}`,
-    resource_type: 'image',
-    format: 'pdf',
-    flags: 'attachment'
+    resource_type: 'raw',
+    format: 'pdf'
   });
   return url;
 }
@@ -451,6 +450,29 @@ app.post('/api/pay/:token', upload.single('slip'), async (req, res) => {
   }
 
   res.json({ ok: true, receiptNo, receiptFile: invoice.receiptFile });
+});
+
+// ─── PDF Proxy (ส่ง PDF จาก Cloudinary พร้อม Content-Type ถูกต้อง) ────
+app.get('/api/pdf/:invoiceId', async (req, res) => {
+  try {
+    let fileUrl = req.query.url; // จาก pay.html
+    if (!fileUrl) {
+      // จาก admin (index.html)
+      const { rows } = await pool.query(
+        'SELECT invoice_file, receipt_file FROM invoices WHERE id=$1', [req.params.invoiceId]
+      );
+      if (!rows.length) return res.status(404).send('Not found');
+      const col = req.query.type === 'receipt' ? 'receipt_file' : 'invoice_file';
+      fileUrl = rows[0][col];
+    }
+    if (!fileUrl || !fileUrl.startsWith('http')) return res.status(404).send('Not found');
+    const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="document.pdf"`);
+    res.send(Buffer.from(response.data));
+  } catch(e) {
+    res.status(500).send('Error fetching PDF');
+  }
 });
 
 // ─── Serve pay page ──────────────────────────────

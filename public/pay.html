@@ -173,7 +173,10 @@ async function confirm() {
     if (!r.ok) { showAlert(data.error || 'เกิดข้อผิดพลาด', 'err'); btn.disabled=false; btn.innerHTML='ยืนยันการชำระเงิน'; return; }
     document.getElementById('form').style.display = 'none';
     document.getElementById('receiptNo').textContent = data.receiptNo;
-    document.getElementById('receiptLink').href = `/receipts/${data.receiptFile}`;
+    const rf = data.receiptFile || '';
+    document.getElementById('receiptLink').href = rf.startsWith('http')
+      ? `/api/pdf/${data.receiptNo}?type=receipt&url=${encodeURIComponent(rf)}`
+      : `/receipts/${rf}`;
     document.getElementById('success').style.display = 'block';
   } catch(e) {
     showAlert('เกิดข้อผิดพลาด กรุณาลองใหม่', 'err');
