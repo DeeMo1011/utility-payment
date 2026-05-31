@@ -170,6 +170,38 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: linear-gradient(#7c3aed, #db2777); border-radius: 99px; }
 
+  /* Light mode overrides */
+  body.light {
+    --bg: #f5f3ff; --surface: rgba(255,255,255,0.85);
+    --border: rgba(139,92,246,0.2); --text: #1e1b4b; --gray: #6d28d9;
+    background: #f5f3ff; color: #1e1b4b;
+  }
+  body.light::before { opacity: 0.08; }
+  body.light::after  { opacity: 0.08; }
+  body.light #blob3  { opacity: 0.08; }
+  body.light header  { background: rgba(245,243,255,0.85); }
+  body.light nav     { background: rgba(245,243,255,0.85); }
+  body.light input, body.light select {
+    background: rgba(255,255,255,0.9); color: #1e1b4b;
+    border-color: rgba(139,92,246,0.3);
+  }
+  body.light th  { background: rgba(139,92,246,0.08); color: #7c3aed; }
+  body.light td  { color: #1e1b4b; }
+  body.light tr:hover td { background: rgba(139,92,246,0.05); }
+  body.light .modal { background: rgba(245,243,255,0.97); }
+  body.light #previewBox { color: #1e1b4b !important; }
+  body.light .stat .lbl { color: #7c3aed; }
+  body.light label { color: #7c3aed; }
+
+  /* Toggle button */
+  #themeToggle {
+    margin-left: auto; background: rgba(255,255,255,0.1);
+    border: 1px solid var(--border); border-radius: 99px;
+    padding: 6px 14px; cursor: pointer; font-size: 13px;
+    color: #c084fc; transition: .2s; white-space: nowrap;
+  }
+  #themeToggle:hover { background: rgba(168,85,247,0.2); }
+
   @media (max-width: 640px) {
     .grid2, .grid3 { grid-template-columns: 1fr; }
   }
@@ -181,6 +213,7 @@
 <header>
   <span style="font-size:24px">🏠</span>
   <h1 id="ownerTitle">Utility Payment System</h1>
+  <button id="themeToggle" onclick="toggleTheme()">☀️ Light</button>
 </header>
 
 <nav>
@@ -556,6 +589,17 @@ async function loadDash() {
       <td>${inv.receiptFile ? `<a href="/receipts/${inv.receiptFile}" target="_blank" class="btn btn-sm btn-accent">ใบเสร็จ</a>` : ''}</td>
     </tr>`;
   }).join('') || '<tr><td colspan="6" style="text-align:center;color:#94A3B8;padding:20px">ยังไม่มีรายการ</td></tr>';
+}
+
+// ─── Theme ───────────────────────────────────────
+function toggleTheme() {
+  const isLight = document.body.classList.toggle('light');
+  document.getElementById('themeToggle').textContent = isLight ? '🌙 Dark' : '☀️ Light';
+  localStorage.setItem('theme', isLight ? 'light' : 'dark');
+}
+if (localStorage.getItem('theme') === 'light') {
+  document.body.classList.add('light');
+  document.getElementById('themeToggle').textContent = '🌙 Dark';
 }
 
 // ─── Init ─────────────────────────────────────────
