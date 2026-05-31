@@ -259,7 +259,7 @@
   </div>
   <div class="card">
     <h2>รายการห้องทั้งหมด</h2>
-    <table><thead><tr><th>ห้อง</th><th>ผู้เช่า</th><th>เบอร์โทร</th><th>ค่าเช่า</th><th>ดำเนินการ</th></tr></thead>
+    <table><thead><tr><th>ห้อง</th><th>ผู้เช่า</th><th>เบอร์โทร</th><th>ค่าเช่า</th><th>LINE</th><th>ดำเนินการ</th></tr></thead>
     <tbody id="roomsTable"></tbody></table>
   </div>
 </div>
@@ -270,15 +270,70 @@
     <h2>บันทึกค่ามิเตอร์ & ออก Invoice</h2>
     <div class="grid2">
       <div><label>ห้อง *</label>
-        <select id="m-room"><option value="">-- เลือกห้อง --</option></select>
+        <select id="m-room" onchange="onRoomChange()"><option value="">-- เลือกห้อง --</option></select>
       </div>
       <div><label>ประจำเดือน *</label><input id="m-month" type="month"></div>
-      <div><label>💧 มิเตอร์น้ำ (เก่า)</label><input id="m-waterOld" type="number" placeholder="ค่าครั้งก่อน" min="0"></div>
-      <div><label>💧 มิเตอร์น้ำ (ใหม่) <span style="color:#F59E0B;font-size:11px">— ต้องมากกว่าเก่า อย่างน้อย 5 หน่วย</span></label><input id="m-waterNew" type="number" placeholder="ค่าปัจจุบัน" min="0"></div>
-      <div><label>⚡ มิเตอร์ไฟ (เก่า)</label><input id="m-elecOld" type="number" placeholder="ค่าครั้งก่อน"></div>
-      <div><label>⚡ มิเตอร์ไฟ (ใหม่)</label><input id="m-elecNew" type="number" placeholder="ค่าปัจจุบัน"></div>
+      <div>
+        <label>💧 มิเตอร์น้ำ (เก่า)
+          <span id="waterOldHint" style="color:#a78bfa;font-size:11px;margin-left:6px"></span>
+        </label>
+        <input id="m-waterOld" type="number" placeholder="ค่าครั้งก่อน" min="0" oninput="updatePreview()">
+      </div>
+      <div><label>💧 มิเตอร์น้ำ (ใหม่) <span style="color:#F59E0B;font-size:11px">— ต้องมากกว่าเก่า อย่างน้อย 5 หน่วย</span></label>
+        <input id="m-waterNew" type="number" placeholder="ค่าปัจจุบัน" min="0" oninput="updatePreview()">
+      </div>
+      <div>
+        <label>⚡ มิเตอร์ไฟ (เก่า)
+          <span id="elecOldHint" style="color:#a78bfa;font-size:11px;margin-left:6px"></span>
+        </label>
+        <input id="m-elecOld" type="number" placeholder="ค่าครั้งก่อน" oninput="updatePreview()">
+      </div>
+      <div><label>⚡ มิเตอร์ไฟ (ใหม่)</label>
+        <input id="m-elecNew" type="number" placeholder="ค่าปัจจุบัน" oninput="updatePreview()">
+      </div>
     </div>
-    <div id="previewBox" style="display:none;background:#F0F9FF;border-radius:8px;padding:14px;margin-top:14px">
+
+    <!-- ค่าใช้จ่ายเพิ่มเติม -->
+    <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
+      <div style="font-size:13px;font-weight:600;color:#c084fc;margin-bottom:10px">➕ ค่าใช้จ่ายเพิ่มเติม</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+
+        <!-- ค่าทำความสะอาด -->
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <label style="margin:0;display:flex;align-items:center;gap:6px;cursor:pointer;min-width:180px">
+            <input type="checkbox" id="chk-clean" onchange="toggleExtra('clean');updatePreview()" style="width:auto;accent-color:#a855f7">
+            🧹 ค่าทำความสะอาด
+          </label>
+          <input id="extra-clean" type="number" placeholder="จำนวนเงิน (บาท)" min="0"
+            style="display:none;width:180px" oninput="updatePreview()">
+        </div>
+
+        <!-- ค่ายอดค้างชำระ -->
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <label style="margin:0;display:flex;align-items:center;gap:6px;cursor:pointer;min-width:180px">
+            <input type="checkbox" id="chk-outstanding" onchange="toggleExtra('outstanding');updatePreview()" style="width:auto;accent-color:#a855f7">
+            ⚠️ ค่ายอดค้างชำระ
+          </label>
+          <input id="extra-outstanding" type="number" placeholder="จำนวนเงิน (บาท)" min="0"
+            style="display:none;width:180px" oninput="updatePreview()">
+        </div>
+
+        <!-- ค่าอื่นๆ -->
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <label style="margin:0;display:flex;align-items:center;gap:6px;cursor:pointer;min-width:180px">
+            <input type="checkbox" id="chk-other" onchange="toggleExtra('other');updatePreview()" style="width:auto;accent-color:#a855f7">
+            📝 ค่าอื่นๆ โปรดระบุ
+          </label>
+          <input id="extra-other-desc" type="text" placeholder="ระบุรายการ"
+            style="display:none;width:160px" oninput="updatePreview()">
+          <input id="extra-other" type="number" placeholder="จำนวนเงิน (บาท)" min="0"
+            style="display:none;width:180px" oninput="updatePreview()">
+        </div>
+
+      </div>
+    </div>
+
+    <div id="previewBox" style="display:none;border-radius:8px;padding:14px;margin-top:14px">
       <strong>ตัวอย่างการคำนวณ:</strong>
       <div id="previewText" style="margin-top:6px;font-size:13px;line-height:1.8"></div>
     </div>
@@ -313,6 +368,10 @@
       <div>
         <label>LINE User ID หรือ Group ID (default ทุกห้อง)</label>
         <input id="s-lineuid" placeholder="Uxxxxxxxxx... หรือ Cxxxxxxxxx...">
+      </div>
+      <div>
+        <label>👤 LINE User ID เจ้าของ (รับแจ้งเตือนเมื่อผู้เช่าชำระเงิน)</label>
+        <input id="s-ownerlineuid" placeholder="Uxxxxxxxxx... (User ID ของคุณ)">
       </div>
     </div>
     <button class="btn btn-primary mt" onclick="saveSettings()">💾 บันทึกการตั้งค่า</button>
@@ -396,8 +455,9 @@ async function loadSettings() {
   document.getElementById('s-water').value = settings.waterRate || 18;
   document.getElementById('s-elec').value  = settings.electricRate || 8;
   document.getElementById('s-bank').value  = settings.bankAccount || '';
-  document.getElementById('s-line').value    = settings.lineToken || '';
-  document.getElementById('s-lineuid').value = settings.lineUserId || '';
+  document.getElementById('s-line').value         = settings.lineToken || '';
+  document.getElementById('s-lineuid').value      = settings.lineUserId || '';
+  document.getElementById('s-ownerlineuid').value = settings.ownerLineUserId || '';
 }
 async function saveSettings() {
   const body = {
@@ -405,8 +465,9 @@ async function saveSettings() {
     waterRate:    Number(document.getElementById('s-water').value),
     electricRate: Number(document.getElementById('s-elec').value),
     bankAccount:  document.getElementById('s-bank').value,
-    lineToken:    document.getElementById('s-line').value,
-    lineUserId:   document.getElementById('s-lineuid').value,
+    lineToken:       document.getElementById('s-line').value,
+    lineUserId:      document.getElementById('s-lineuid').value,
+    ownerLineUserId: document.getElementById('s-ownerlineuid').value,
   };
   await fetch('/api/settings', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
   settings = body;
@@ -426,11 +487,15 @@ async function loadRooms() {
       <td>${r.tenantName}</td>
       <td>${r.phone || '-'}</td>
       <td>${Number(r.rent||0).toLocaleString()} บาท</td>
+      <td>${r.lineUserId
+        ? `<span class="badge" style="background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid rgba(34,197,94,0.3)">✅ ลงทะเบียนแล้ว</span>`
+        : `<span class="badge" style="background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3)">❌ ยังไม่ลงทะเบียน</span>`}
+      </td>
       <td>
         <button class="btn btn-sm btn-primary" onclick="editRoom('${r.id}')">แก้ไข</button>
         <button class="btn btn-sm btn-danger" style="margin-left:4px" onclick="deleteRoom('${r.id}')">ลบ</button>
       </td>
-    </tr>`).join('') : `<tr><td colspan="5" style="text-align:center;color:#94A3B8;padding:20px">ยังไม่มีห้องพัก</td></tr>`;
+    </tr>`).join('') : `<tr><td colspan="6" style="text-align:center;color:#94A3B8;padding:20px">ยังไม่มีห้องพัก</td></tr>`;
 }
 async function addRoom() {
   const body = {
@@ -487,11 +552,38 @@ async function loadRoomSelect() {
   // default month
   const now = new Date();
   document.getElementById('m-month').value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-  // preview on change
-  ['m-waterOld','m-waterNew','m-elecOld','m-elecNew','m-room'].forEach(id => {
-    document.getElementById(id).addEventListener('input', updatePreview);
-  });
 }
+
+function toggleExtra(type) {
+  const chk = document.getElementById(`chk-${type}`).checked;
+  if (type === 'other') {
+    document.getElementById('extra-other-desc').style.display = chk ? 'inline-block' : 'none';
+  }
+  document.getElementById(`extra-${type}`).style.display = chk ? 'inline-block' : 'none';
+}
+
+async function onRoomChange() {
+  const roomId = document.getElementById('m-room').value;
+  if (!roomId) return;
+  // ดึง invoice ล่าสุดของห้องนี้ เพื่อเอาค่ามิเตอร์ครั้งก่อน
+  const r = await fetch('/api/invoices');
+  const invs = await r.json();
+  const roomInvs = invs.filter(i => i.roomId === roomId).sort((a,b) => b.issuedAt?.localeCompare(a.issuedAt));
+  if (roomInvs.length) {
+    const last = roomInvs[0];
+    document.getElementById('m-waterOld').value = last.waterNew;
+    document.getElementById('m-elecOld').value  = last.electricNew;
+    document.getElementById('waterOldHint').textContent = `(จากเดือน ${last.month}: ${last.waterNew})`;
+    document.getElementById('elecOldHint').textContent  = `(จากเดือน ${last.month}: ${last.electricNew})`;
+  } else {
+    document.getElementById('m-waterOld').value = '';
+    document.getElementById('m-elecOld').value  = '';
+    document.getElementById('waterOldHint').textContent = '';
+    document.getElementById('elecOldHint').textContent  = '';
+  }
+  updatePreview();
+}
+
 async function updatePreview() {
   const roomId = document.getElementById('m-room').value;
   const room = rooms.find(r => r.id === roomId);
@@ -501,17 +593,25 @@ async function updatePreview() {
   const eOld = Number(document.getElementById('m-elecOld').value) || 0;
   const eNew = Number(document.getElementById('m-elecNew').value) || 0;
   if (!roomId || wNew <= wOld || eNew <= eOld) { document.getElementById('previewBox').style.display='none'; return; }
-  const wCost = (wNew - wOld) * s.waterRate;
-  const eCost = (eNew - eOld) * s.electricRate;
-  const rent  = Number(room?.rent || 0);
-  const total = wCost + eCost + rent;
+  const wCost    = (wNew - wOld) * s.waterRate;
+  const eCost    = (eNew - eOld) * s.electricRate;
+  const rent     = Number(room?.rent || 0);
+  const cleaning = document.getElementById('chk-clean').checked ? Number(document.getElementById('extra-clean').value)||0 : 0;
+  const outstanding = document.getElementById('chk-outstanding').checked ? Number(document.getElementById('extra-outstanding').value)||0 : 0;
+  const otherFee = document.getElementById('chk-other').checked ? Number(document.getElementById('extra-other').value)||0 : 0;
+  const otherDesc = document.getElementById('extra-other-desc').value || 'ค่าอื่นๆ';
+  const total = wCost + eCost + rent + cleaning + outstanding + otherFee;
   document.getElementById('previewText').innerHTML =
     `💧 น้ำ: ${wNew-wOld} หน่วย × ${s.waterRate} = <strong>${wCost.toLocaleString()}</strong> บาท<br>` +
     `⚡ ไฟ: ${eNew-eOld} หน่วย × ${s.electricRate} = <strong>${eCost.toLocaleString()}</strong> บาท<br>` +
     (rent>0 ? `🏠 ค่าเช่า: <strong>${rent.toLocaleString()}</strong> บาท<br>` : '') +
-    `<hr style="margin:6px 0;border-color:#E2E8F0">💰 รวม: <strong style="font-size:16px;color:var(--primary)">${total.toLocaleString()} บาท</strong>`;
+    (cleaning>0 ? `🧹 ค่าทำความสะอาด: <strong>${cleaning.toLocaleString()}</strong> บาท<br>` : '') +
+    (outstanding>0 ? `⚠️ ค่ายอดค้างชำระ: <strong>${outstanding.toLocaleString()}</strong> บาท<br>` : '') +
+    (otherFee>0 ? `📝 ${otherDesc}: <strong>${otherFee.toLocaleString()}</strong> บาท<br>` : '') +
+    `<hr style="margin:6px 0;border-color:var(--border)">💰 รวม: <strong style="font-size:16px;color:var(--primary)">${total.toLocaleString()} บาท</strong>`;
   document.getElementById('previewBox').style.display = 'block';
 }
+
 async function createInvoice() {
   const btn = document.getElementById('invoiceBtn');
   btn.disabled = true; btn.textContent = '⏳ กำลังดำเนินการ...';
@@ -522,11 +622,14 @@ async function createInvoice() {
     waterNew:    document.getElementById('m-waterNew').value,
     electricOld: document.getElementById('m-elecOld').value,
     electricNew: document.getElementById('m-elecNew').value,
+    cleaningFee:     document.getElementById('chk-clean').checked ? Number(document.getElementById('extra-clean').value)||0 : 0,
+    outstandingFee:  document.getElementById('chk-outstanding').checked ? Number(document.getElementById('extra-outstanding').value)||0 : 0,
+    otherFee:        document.getElementById('chk-other').checked ? Number(document.getElementById('extra-other').value)||0 : 0,
+    otherFeeDesc:    document.getElementById('extra-other-desc').value || '',
   };
   if (!body.roomId || !body.month || body.waterOld === '' || !body.waterNew || body.electricOld === '' || !body.electricNew)
     { showAlert('กรุณากรอกข้อมูลให้ครบ', 'err'); btn.disabled=false; btn.textContent='📋 ออก Invoice & ส่ง Line'; return; }
 
-  // Validate min 5 หน่วยน้ำ
   const waterUsed = Number(body.waterNew) - Number(body.waterOld);
   if (waterUsed < 5) {
     showAlert(`ค่ามิเตอร์น้ำต้องมากกว่าเดิมอย่างน้อย 5 หน่วย (ปัจจุบัน: ${waterUsed} หน่วย)`, 'err');
@@ -538,7 +641,6 @@ async function createInvoice() {
   btn.disabled=false; btn.textContent='📋 ออก Invoice & ส่ง Line';
   if (data.error) return showAlert(data.error, 'err');
   showAlert(`✅ ออก Invoice ${data.invoiceNo} เรียบร้อย ส่ง Line แล้ว!`);
-  // Auto redirect ไปหน้า Invoice
   setTimeout(() => showTab('invoices'), 1200);
 }
 
