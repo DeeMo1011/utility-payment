@@ -7,10 +7,25 @@ const cors   = require('cors');
 const fs     = require('fs');
 const path   = require('path');
 const { Pool } = require('pg');
+const cloudinary = require('cloudinary').v2;
+const streamifier = require('streamifier');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+
+// ─── Cloudinary ───────────────────────────────────
+cloudinary.config({ secure: true }); // ใช้ CLOUDINARY_URL env var อัตโนมัติ
+
+function uploadToCloudinary(buffer, options = {}) {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(options, (err, result) => {
+      if (err) return reject(err);
+      resolve(result.secure_url);
+    });
+    streamifier.createReadStream(buffer).pipe(stream);
+  });
+}
 
 // ─── PostgreSQL ───────────────────────────────────
 const pool = new Pool({
@@ -34,6 +49,9 @@ async function initDB() {
   await pool.query(`INSERT INTO settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
   // migration: เพิ่ม column ถ้ายังไม่มี
   await pool.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS owner_line_user_id TEXT DEFAULT ''`);
+  await pool.query(`ALTER TABLE rooms ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT ''`);
+  await pool.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS room_number TEXT DEFAULT ''`);
+  await pool.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS tenant_name TEXT DEFAULT ''`);
   await pool.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS cleaning_fee NUMERIC DEFAULT 0`);
   await pool.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS outstanding_fee NUMERIC DEFAULT 0`);
   await pool.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS other_fee NUMERIC DEFAULT 0`);
@@ -44,6 +62,7 @@ async function initDB() {
       id TEXT PRIMARY KEY,
       number TEXT,
       tenant_name TEXT,
+      phone TEXT DEFAULT '',
       rent NUMERIC DEFAULT 0,
       line_token TEXT DEFAULT '',
       line_user_id TEXT DEFAULT '',
@@ -78,25 +97,18 @@ async function initDB() {
   console.log('[DB] Tables ready');
 }
 
-// ─── Paths ───────────────────────────────────────
-const UPLOADS_DIR  = path.join(__dirname, 'uploads');
-const RECEIPTS_DIR = path.join(__dirname, 'receipts');
-[UPLOADS_DIR, RECEIPTS_DIR].forEach(d => fs.mkdirSync(d, { recursive: true }));
+// ─── Font path (สำหรับ PDF) ───────────────────────
+const FONTS_DIR = path.join(__dirname, 'fonts');
+fs.mkdirSync(FONTS_DIR, { recursive: true });
 
 // ─── Middleware ───────────────────────────────────
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads',  express.static(UPLOADS_DIR));
-app.use('/receipts', express.static(RECEIPTS_DIR));
 
-// ─── Multer ───────────────────────────────────────
-const storage = multer.diskStorage({
-  destination: UPLOADS_DIR,
-  filename: (req, file, cb) => cb(null, `slip_${Date.now()}${path.extname(file.originalname)}`)
-});
+// ─── Multer (memory) ──────────────────────────────
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowed = /jpeg|jpg|png|gif|webp/;
@@ -133,13 +145,13 @@ const hasThaiFonts = !!FONT_REGULAR;
 console.log(hasThaiFonts ? `[PDF] Thai font: ${FONT_REGULAR}` : '[PDF] ไม่พบ font ไทย');
 
 // ─── PDF ──────────────────────────────────────────
-function generatePDF(invoice, room, settings, type = 'receipt') {
-  return new Promise((resolve, reject) => {
-    const filename = `${type}_${invoice.id}.pdf`;
-    const filepath = path.join(RECEIPTS_DIR, filename);
+async function generatePDF(invoice, room, settings, type = 'receipt') {
+  const buffer = await new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
-    const stream = fs.createWriteStream(filepath);
-    doc.pipe(stream);
+    const chunks = [];
+    doc.on('data', chunk => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
 
     if (hasThaiFonts) {
       doc.registerFont('Regular', FONT_REGULAR);
@@ -219,9 +231,16 @@ function generatePDF(invoice, room, settings, type = 'receipt') {
     }
 
     doc.end();
-    stream.on('finish', () => resolve(filename));
-    stream.on('error', reject);
   });
+
+  // Upload PDF ขึ้น Cloudinary
+  const url = await uploadToCloudinary(buffer, {
+    folder: 'utility-payment',
+    public_id: `${type}_${invoice.id}`,
+    resource_type: 'raw',
+    format: 'pdf'
+  });
+  return url;
 }
 
 // ─── Helpers ─────────────────────────────────────
@@ -233,11 +252,12 @@ function rowToSettings(row) {
 }
 function rowToRoom(row) {
   return { id: row.id, number: row.number, tenantName: row.tenant_name,
-    rent: Number(row.rent), lineToken: row.line_token,
+    phone: row.phone || '', rent: Number(row.rent), lineToken: row.line_token,
     lineUserId: row.line_user_id, createdAt: row.created_at };
 }
 function rowToInvoice(row) {
   return { id: row.id, invoiceNo: row.invoice_no, roomId: row.room_id, month: row.month,
+    roomNumber: row.room_number || '', tenantName: row.tenant_name || '',
     waterOld: Number(row.water_old), waterNew: Number(row.water_new), waterCost: Number(row.water_cost),
     electricOld: Number(row.electric_old), electricNew: Number(row.electric_new), electricCost: Number(row.electric_cost),
     rent: Number(row.rent), cleaningFee: Number(row.cleaning_fee||0), outstandingFee: Number(row.outstanding_fee||0),
@@ -276,23 +296,24 @@ app.get('/api/rooms', async (req, res) => {
 });
 
 app.post('/api/rooms', async (req, res) => {
-  const { number, tenantName, rent, lineToken, lineUserId } = req.body;
+  const { number, tenantName, phone, rent, lineToken, lineUserId } = req.body;
   const id = uuidv4();
   const createdAt = new Date().toLocaleDateString('th-TH');
   const { rows } = await pool.query(
-    `INSERT INTO rooms (id, number, tenant_name, rent, line_token, line_user_id, created_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-    [id, number, tenantName, rent || 0, lineToken || '', lineUserId || '', createdAt]);
+    `INSERT INTO rooms (id, number, tenant_name, phone, rent, line_token, line_user_id, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    [id, number, tenantName, phone || '', rent || 0, lineToken || '', lineUserId || '', createdAt]);
   res.json(rowToRoom(rows[0]));
 });
 
 app.put('/api/rooms/:id', async (req, res) => {
-  const { number, tenantName, rent, lineToken, lineUserId } = req.body;
+  const { number, tenantName, phone, rent, lineToken, lineUserId } = req.body;
   const { rows } = await pool.query(
     `UPDATE rooms SET number=COALESCE($1,number), tenant_name=COALESCE($2,tenant_name),
-     rent=COALESCE($3,rent), line_token=COALESCE($4,line_token), line_user_id=COALESCE($5,line_user_id)
-     WHERE id=$6 RETURNING *`,
-    [number, tenantName, rent, lineToken, lineUserId, req.params.id]);
+     phone=COALESCE($3,phone), rent=COALESCE($4,rent),
+     line_token=COALESCE($5,line_token), line_user_id=COALESCE($6,line_user_id)
+     WHERE id=$7 RETURNING *`,
+    [number, tenantName, phone, rent, lineToken, lineUserId, req.params.id]);
   if (!rows.length) return res.status(404).json({ error: 'Not found' });
   res.json(rowToRoom(rows[0]));
 });
@@ -345,10 +366,10 @@ app.post('/api/invoices', async (req, res) => {
   invoice.invoiceFile = await generatePDF(invoice, room, settings, 'invoice');
 
   await pool.query(`INSERT INTO invoices
-    (id,invoice_no,room_id,month,water_old,water_new,water_cost,electric_old,electric_new,electric_cost,
+    (id,invoice_no,room_id,room_number,tenant_name,month,water_old,water_new,water_cost,electric_old,electric_new,electric_cost,
      rent,cleaning_fee,outstanding_fee,other_fee,other_fee_desc,total,pay_token,status,issued_at,invoice_file)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
-    [id, invoiceNo, roomId, month, waterOld, waterNew, waterCost,
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+    [id, invoiceNo, roomId, room.number, room.tenantName, month, waterOld, waterNew, waterCost,
      electricOld, electricNew, electricCost, rent,
      cleaningFee, outstandingFee, otherFee, otherFeeDesc,
      total, payToken, 'pending', issuedAt, invoice.invoiceFile]);
@@ -400,16 +421,23 @@ app.post('/api/pay/:token', upload.single('slip'), async (req, res) => {
   const receiptNo  = `RCP-${new Date().getFullYear()}-${String(Number(pRows[0].count) + 1).padStart(4, '0')}`;
   const paidAt     = new Date().toLocaleDateString('th-TH');
 
+  // Upload สลิปขึ้น Cloudinary
+  const slipUrl = await uploadToCloudinary(req.file.buffer, {
+    folder: 'utility-payment/slips',
+    public_id: `slip_${invoice.id}`,
+    resource_type: 'image'
+  });
+
   invoice.status      = 'paid';
   invoice.paidAt      = paidAt;
-  invoice.slipFile    = req.file.filename;
+  invoice.slipFile    = slipUrl;
   invoice.receiptNo   = receiptNo;
   invoice.receiptFile = await generatePDF(invoice, room, settings, 'receipt');
 
   await pool.query(`UPDATE invoices SET status='paid',paid_at=$1,slip_file=$2,receipt_no=$3,receipt_file=$4 WHERE pay_token=$5`,
-    [paidAt, invoice.slipFile, receiptNo, invoice.receiptFile, req.params.token]);
+    [paidAt, slipUrl, receiptNo, invoice.receiptFile, req.params.token]);
 
-  const receiptUrl = `${BASE_URL}/receipts/${invoice.receiptFile}`;
+  const receiptUrl = invoice.receiptFile; // เป็น Cloudinary URL แล้ว
 
   // แจ้งผู้เช่า
   const tenantMsg = `✅ ยืนยันการชำระเงินเรียบร้อย!\nห้อง: ${room.number}\nใบเสร็จเลขที่: ${receiptNo}\nจำนวน: ${invoice.total.toLocaleString()} บาท\nวันที่: ${paidAt}\n📄 ดาวน์โหลดใบเสร็จ: ${receiptUrl}`;

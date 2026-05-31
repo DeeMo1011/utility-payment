@@ -14,7 +14,9 @@
     "axios": "^1.6.0",
     "uuid": "^9.0.0",
     "cors": "^2.8.5",
-    "pg": "^8.11.3"
+    "pg": "^8.11.3",
+    "cloudinary": "^2.5.1",
+    "streamifier": "^0.1.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
