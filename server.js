@@ -233,14 +233,7 @@ async function generatePDF(invoice, room, settings, type = 'receipt') {
     doc.end();
   });
 
-  // Upload PDF ขึ้น Cloudinary
-  const url = await uploadToCloudinary(buffer, {
-    folder: 'utility-payment',
-    public_id: `${type}_${invoice.id}`,
-    resource_type: 'raw',
-    format: 'pdf'
-  });
-  return url;
+  return buffer; // ส่ง buffer กลับ ไม่ upload ขึ้น Cloudinary
 }
 
 // ─── Helpers ─────────────────────────────────────
@@ -363,16 +356,15 @@ app.post('/api/invoices', async (req, res) => {
     slipFile: null, receiptNo: null, receiptFile: null, invoiceFile: null
   };
 
-  invoice.invoiceFile = await generatePDF(invoice, room, settings, 'invoice');
-
+  // ไม่ต้อง generate PDF ตอนสร้าง invoice — generate on-demand เมื่อกดดู
   await pool.query(`INSERT INTO invoices
     (id,invoice_no,room_id,room_number,tenant_name,month,water_old,water_new,water_cost,electric_old,electric_new,electric_cost,
-     rent,cleaning_fee,outstanding_fee,other_fee,other_fee_desc,total,pay_token,status,issued_at,invoice_file)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+     rent,cleaning_fee,outstanding_fee,other_fee,other_fee_desc,total,pay_token,status,issued_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
     [id, invoiceNo, roomId, room.number, room.tenantName, month, waterOld, waterNew, waterCost,
      electricOld, electricNew, electricCost, rent,
      cleaningFee, outstandingFee, otherFee, otherFeeDesc,
-     total, payToken, 'pending', issuedAt, invoice.invoiceFile]);
+     total, payToken, 'pending', issuedAt]);
 
   const payUrl = `${BASE_URL}/pay/${payToken}`;
   const msg = `📋 แจ้งค่าใช้จ่ายประจำเดือน ${month}\n` +
@@ -428,24 +420,18 @@ app.post('/api/pay/:token', upload.single('slip'), async (req, res) => {
     resource_type: 'image'
   });
 
-  invoice.status      = 'paid';
-  invoice.paidAt      = paidAt;
-  invoice.slipFile    = slipUrl;
-  invoice.receiptNo   = receiptNo;
-  invoice.receiptFile = await generatePDF(invoice, room, settings, 'receipt');
+  await pool.query(`UPDATE invoices SET status='paid',paid_at=$1,slip_file=$2,receipt_no=$3 WHERE pay_token=$4`,
+    [paidAt, slipUrl, receiptNo, req.params.token]);
 
-  await pool.query(`UPDATE invoices SET status='paid',paid_at=$1,slip_file=$2,receipt_no=$3,receipt_file=$4 WHERE pay_token=$5`,
-    [paidAt, slipUrl, receiptNo, invoice.receiptFile, req.params.token]);
-
-  const receiptUrl = invoice.receiptFile; // เป็น Cloudinary URL แล้ว
+  const receiptUrl = `${BASE_URL}/api/pdf/${invoice.id}?type=receipt`;
 
   // แจ้งผู้เช่า
   const tenantMsg = `✅ ยืนยันการชำระเงินเรียบร้อย!\nห้อง: ${room.number}\nใบเสร็จเลขที่: ${receiptNo}\nจำนวน: ${invoice.total.toLocaleString()} บาท\nวันที่: ${paidAt}\n📄 ดาวน์โหลดใบเสร็จ: ${receiptUrl}`;
   await sendLine(room.lineToken || settings.lineToken, room.lineUserId || settings.lineUserId, tenantMsg);
 
-  // แจ้งเจ้าของ (ใช้ lineToken + ownerLineUserId จาก settings)
+  // แจ้งเจ้าของ
   if (settings.ownerLineUserId) {
-    const ownerMsg = `💰 มีการชำระเงินใหม่!\n━━━━━━━━━━━━━━\nห้อง: ${room.number} — ${room.tenantName}\nใบเสร็จ: ${receiptNo}\nจำนวน: ${invoice.total.toLocaleString()} บาท\nวันที่: ${paidAt}\n📎 สลิป: ${BASE_URL}/uploads/${invoice.slipFile}\n📄 ใบเสร็จ: ${receiptUrl}`;
+    const ownerMsg = `💰 มีการชำระเงินใหม่!\n━━━━━━━━━━━━━━\nห้อง: ${room.number} — ${room.tenantName}\nใบเสร็จ: ${receiptNo}\nจำนวน: ${invoice.total.toLocaleString()} บาท\nวันที่: ${paidAt}\n📎 สลิป: ${slipUrl}\n📄 ใบเสร็จ: ${receiptUrl}`;
     await sendLine(settings.lineToken, settings.ownerLineUserId, ownerMsg);
   }
 
