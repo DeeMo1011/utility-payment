@@ -452,26 +452,114 @@ app.post('/api/pay/:token', upload.single('slip'), async (req, res) => {
   res.json({ ok: true, receiptNo, receiptFile: invoice.receiptFile });
 });
 
-// ─── PDF Proxy (ส่ง PDF จาก Cloudinary พร้อม Content-Type ถูกต้อง) ────
+// ─── PDF On-Demand (generate จาก DB ทันที ไม่ต้องพึ่ง stored file) ────
 app.get('/api/pdf/:invoiceId', async (req, res) => {
   try {
-    let fileUrl = req.query.url; // จาก pay.html
-    if (!fileUrl) {
-      // จาก admin (index.html)
-      const { rows } = await pool.query(
-        'SELECT invoice_file, receipt_file FROM invoices WHERE id=$1', [req.params.invoiceId]
-      );
-      if (!rows.length) return res.status(404).send('Not found');
-      const col = req.query.type === 'receipt' ? 'receipt_file' : 'invoice_file';
-      fileUrl = rows[0][col];
+    const type = req.query.type === 'receipt' ? 'receipt' : 'invoice';
+
+    const { rows: iRows } = await pool.query('SELECT * FROM invoices WHERE id=$1', [req.params.invoiceId]);
+    if (!iRows.length) return res.status(404).send('Not found');
+    const invoice = rowToInvoice(iRows[0]);
+
+    // ถ้าเป็น receipt ต้องมี paidAt
+    if (type === 'receipt' && !invoice.paidAt) return res.status(404).send('Not paid yet');
+
+    // ดึง room จาก DB หรือใช้ snapshot
+    let room;
+    const { rows: rRows } = await pool.query('SELECT * FROM rooms WHERE id=$1', [invoice.roomId]);
+    if (rRows.length) {
+      room = rowToRoom(rRows[0]);
+    } else {
+      room = { number: invoice.roomNumber, tenantName: invoice.tenantName, rent: invoice.rent };
     }
-    if (!fileUrl || !fileUrl.startsWith('http')) return res.status(404).send('Not found');
-    const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
+
+    const { rows: sRows } = await pool.query('SELECT * FROM settings WHERE id=1');
+    const settings = rowToSettings(sRows[0]);
+
+    // Generate PDF เป็น buffer
+    const buffer = await new Promise((resolve, reject) => {
+      const doc = new PDFDocument({ size: 'A4', margin: 50 });
+      const chunks = [];
+      doc.on('data', chunk => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      if (hasThaiFonts) { doc.registerFont('Regular', FONT_REGULAR); doc.registerFont('Bold', FONT_BOLD); }
+      const fontRegular = hasThaiFonts ? 'Regular' : 'Helvetica';
+      const fontBold    = hasThaiFonts ? 'Bold' : 'Helvetica-Bold';
+      const isReceipt   = type === 'receipt';
+      const title       = isReceipt ? 'ใบเสร็จรับเงิน' : 'ใบแจ้งหนี้';
+      const docNo       = isReceipt ? invoice.receiptNo : invoice.invoiceNo;
+
+      doc.fontSize(22).font(fontBold).text(settings.ownerName, { align: 'center' });
+      doc.fontSize(16).font(fontBold).text(title, { align: 'center' });
+      doc.moveDown(0.5);
+      doc.fontSize(11).font(fontRegular);
+      doc.text(`เลขที่: ${docNo}`, { align: 'right' });
+      doc.text(`วันที่: ${isReceipt ? invoice.paidAt : invoice.issuedAt}`, { align: 'right' });
+      doc.moveDown(0.5);
+      doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke(); doc.moveDown(0.5);
+
+      doc.font(fontBold).text('ข้อมูลผู้เช่า');
+      doc.font(fontRegular).text(`ห้อง: ${room.number}  |  ผู้เช่า: ${room.tenantName}`);
+      doc.moveDown(0.5);
+
+      const waterUsed = invoice.waterNew - invoice.waterOld;
+      const elecUsed  = invoice.electricNew - invoice.electricOld;
+      doc.font(fontBold).text('ข้อมูลมิเตอร์');
+      doc.font(fontRegular);
+      doc.text(`มิเตอร์น้ำ: ${invoice.waterOld} ถึง ${invoice.waterNew} (ใช้ ${waterUsed} หน่วย x ${settings.waterRate} บาท)`);
+      doc.text(`มิเตอร์ไฟ: ${invoice.electricOld} ถึง ${invoice.electricNew} (ใช้ ${elecUsed} หน่วย x ${settings.electricRate} บาท)`);
+      doc.moveDown(0.5);
+      doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke(); doc.moveDown(0.3);
+
+      doc.font(fontBold);
+      doc.text('รายการ', 50, doc.y, { width: 300 });
+      doc.text('จำนวน', 350, doc.y - doc.currentLineHeight(), { width: 80, align: 'right' });
+      doc.text('ราคา (บาท)', 430, doc.y - doc.currentLineHeight(), { width: 115, align: 'right' });
+      doc.moveDown(0.3); doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke(); doc.moveDown(0.3);
+
+      const items = [
+        { name: 'ค่าน้ำ', qty: `${waterUsed} unit`, amount: invoice.waterCost },
+        { name: 'ค่าไฟ', qty: `${elecUsed} unit`, amount: invoice.electricCost },
+      ];
+      if (invoice.rent > 0)         items.push({ name: 'ค่าเช่าห้อง', qty: '1 เดือน', amount: invoice.rent });
+      if (invoice.cleaningFee > 0)  items.push({ name: 'ค่าทำความสะอาด', qty: '-', amount: invoice.cleaningFee });
+      if (invoice.outstandingFee > 0) items.push({ name: 'ค่ายอดค้างชำระ', qty: '-', amount: invoice.outstandingFee });
+      if (invoice.otherFee > 0)     items.push({ name: invoice.otherFeeDesc || 'ค่าอื่นๆ', qty: '-', amount: invoice.otherFee });
+
+      doc.font(fontRegular);
+      items.forEach(item => {
+        const y = doc.y;
+        doc.text(item.name, 50, y, { width: 300 });
+        doc.text(item.qty, 350, y, { width: 80, align: 'right' });
+        doc.text(Number(item.amount).toLocaleString(), 430, y, { width: 115, align: 'right' });
+        doc.moveDown(0.4);
+      });
+
+      doc.moveDown(0.3); doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke(); doc.moveDown(0.3);
+      doc.font(fontBold).fontSize(14);
+      doc.text('รวมทั้งสิ้น', 50, doc.y, { width: 380 });
+      doc.text(`${invoice.total.toLocaleString()} บาท`, 430, doc.y - doc.currentLineHeight(), { width: 115, align: 'right' });
+      doc.moveDown(1);
+
+      if (!isReceipt) {
+        doc.fontSize(11).font(fontRegular);
+        doc.text('กำหนดชำระ: ภายในสิ้นเดือน');
+        doc.text(`ชำระผ่าน: ${settings.bankAccount}`);
+      } else {
+        doc.fontSize(11).font(fontBold).fillColor('green');
+        doc.text('ชำระเงินเรียบร้อยแล้ว', { align: 'center' });
+      }
+      doc.end();
+    });
+
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="document.pdf"`);
-    res.send(Buffer.from(response.data));
+    res.setHeader('Content-Disposition', `inline; filename="${type}_${invoice.invoiceNo}.pdf"`);
+    res.send(buffer);
   } catch(e) {
-    res.status(500).send('Error fetching PDF');
+    console.error('[PDF]', e.message);
+    res.status(500).send('Error generating PDF');
   }
 });
 
