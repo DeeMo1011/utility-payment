@@ -402,6 +402,53 @@ app.get('/pay/:token', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'pay.html'));
 });
 
+// ═══════════════════════════════════════════════════
+//  LINE WEBHOOK — ผู้เช่าพิมพ์เลขห้องเพื่อลงทะเบียน
+// ═══════════════════════════════════════════════════
+app.post('/webhook/line', async (req, res) => {
+  res.sendStatus(200); // ตอบ LINE ก่อนเสมอ
+  try {
+    const events = req.body.events || [];
+    for (const event of events) {
+      if (event.type !== 'message' || event.message.type !== 'text') continue;
+
+      const userId  = event.source.userId;
+      const text    = event.message.text.trim();
+      const { rows: sRows } = await pool.query('SELECT * FROM settings WHERE id=1');
+      const token   = sRows[0]?.line_token;
+      if (!token) continue;
+
+      // ผู้เช่าพิมพ์เลขห้อง เช่น "101" หรือ "ห้อง 101"
+      const roomNum = text.replace(/ห้อง\s*/i, '').trim();
+      const { rows } = await pool.query(
+        'SELECT * FROM rooms WHERE LOWER(number) = LOWER($1)', [roomNum]
+      );
+
+      if (!rows.length) {
+        // ห้องไม่พบ
+        await axios.post('https://api.line.me/v2/bot/message/reply',
+          { replyToken: event.replyToken, messages: [{ type: 'text',
+            text: `❌ ไม่พบห้อง "${roomNum}"\nกรุณาพิมพ์เลขห้องให้ถูกต้อง เช่น 101` }] },
+          { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+        );
+        continue;
+      }
+
+      const room = rows[0];
+      // บันทึก User ID ลงห้องนั้น
+      await pool.query('UPDATE rooms SET line_user_id=$1 WHERE id=$2', [userId, room.id]);
+
+      await axios.post('https://api.line.me/v2/bot/message/reply',
+        { replyToken: event.replyToken, messages: [{ type: 'text',
+          text: `✅ ลงทะเบียนสำเร็จ!\nห้อง ${room.number} (${room.tenant_name})\n\nตั้งแต่นี้ระบบจะแจ้งค่าน้ำ-ค่าไฟ และส่งลิงก์ชำระเงินมาที่นี่โดยตรงครับ 🏠` }] },
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+      );
+    }
+  } catch (e) {
+    console.error('[WEBHOOK]', e.message);
+  }
+});
+
 // ─── Start ───────────────────────────────────────
 initDB().then(() => {
   app.listen(PORT, '0.0.0.0', () => {
